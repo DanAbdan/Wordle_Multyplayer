@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Tebak Kata KBBI</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%236aaa64'/><text x='16' y='23' font-size='20' font-weight='800' text-anchor='middle' fill='white' font-family='Arial'>K</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">K</span><span class="brand-text">Tebak Kata <small>KBBI</small></span></div>
+  <div class="top-actions">
+    <button class="icon-btn" id="btn-help" aria-label="Cara main" title="Cara main">?</button>
+    <button class="icon-btn" id="btn-theme" aria-label="Ganti tema" title="Ganti tema">☾</button>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- BERANDA -->
+  <section id="screen-home" class="screen center">
+    <div class="card home-card">
+      <h1>Tebak kata bareng teman</h1>
+      <p class="muted">Kata 5 huruf dari KBBI. Semua pemain menebak kata yang sama, yang paling cepat dapat poin terbanyak.</p>
+      <label class="field">
+        <span>Nickname</span>
+        <input id="in-name" type="text" maxlength="14" autocomplete="off" placeholder="Misal: Aran">
+      </label>
+      <div id="join-banner" class="banner hidden"></div>
+      <button class="btn primary" id="btn-create">Buat room baru</button>
+      <div class="or"><span>atau gabung</span></div>
+      <div class="join-row">
+        <input id="in-code" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="KODE ROOM">
+        <button class="btn" id="btn-join">Gabung</button>
+      </div>
+      <p class="err" id="home-err"></p>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="screen-lobby" class="screen hidden">
+    <div class="lobby-grid">
+      <div class="card">
+        <div class="room-head">
+          <div>
+            <div class="muted small">Kode room</div>
+            <div class="room-code" id="lobby-code">-----</div>
+          </div>
+          <div class="share-btns">
+            <button class="btn" id="btn-copy-code">Salin kode</button>
+            <button class="btn primary" id="btn-copy-link">Salin link undangan</button>
+          </div>
+        </div>
+        <p class="muted small">Kirim link atau kode ini ke teman. Maksimal <b>12 pemain</b>.</p>
+
+        <h3>Pengaturan</h3>
+        <div class="settings">
+          <label class="field">
+            <span>Jumlah ronde</span>
+            <div class="stepper">
+              <button class="btn sm" id="rounds-dec" aria-label="Kurangi">−</button>
+              <output id="rounds-val">5</output>
+              <button class="btn sm" id="rounds-inc" aria-label="Tambah">+</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>Waktu per ronde</span>
+            <select id="time-sel">
+              <option value="30">30 detik</option>
+              <option value="60">1 menit</option>
+              <option value="90">1,5 menit</option>
+              <option value="120">2 menit</option>
+              <option value="180">3 menit</option>
+              <option value="300">5 menit</option>
+              <option value="600">10 menit</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted small" id="settings-note"></p>
+
+        <button class="btn primary big" id="btn-start">Mulai game</button>
+        <p class="muted small center-text" id="wait-note"></p>
+        <button class="btn link" id="btn-leave-lobby">Keluar dari room</button>
+      </div>
+
+      <div class="card">
+        <h3>Pemain <span class="count" id="lobby-count">1/12</span></h3>
+        <ul class="lobby-players" id="lobby-players"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="screen-game" class="screen hidden">
+    <div class="game-layout">
+      <div class="game-main">
+        <div class="statusbar">
+          <div class="round-tag" id="round-tag">Ronde 1/5</div>
+          <div class="timer" id="timer">2:00</div>
+        </div>
+        <div class="timebar"><div id="timebar-fill"></div></div>
+
+        <div class="board-wrap">
+          <div id="board" class="board" aria-label="Papan tebakan"></div>
+          <div id="countdown" class="overlay hidden"><div><div class="muted">Bersiap…</div><div class="cd-num" id="cd-num">3</div></div></div>
+          <div id="spectate" class="overlay hidden"><div class="spectate-msg">Kamu masuk di tengah ronde.<br>Ikut main di ronde berikutnya ya!</div></div>
+        </div>
+
+        <div id="keyboard" class="keyboard"></div>
+      </div>
+
+      <aside class="side">
+        <div class="side-head">
+          <h3>Pemain</h3>
+          <span class="muted small" id="side-code"></span>
+        </div>
+        <div id="side-players" class="side-players"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- HASIL RONDE / AKHIR -->
+  <div id="modal-result" class="modal hidden">
+    <div class="modal-card">
+      <div id="result-body"></div>
+    </div>
+  </div>
+
+  <div id="modal-help" class="modal hidden">
+    <div class="modal-card">
+      <h2>Cara main</h2>
+      <ul class="help-list">
+        <li>Tebak <b>kata KBBI 5 huruf</b> dalam <b>6 kesempatan</b>. Semua pemain di room menebak kata yang sama dan serentak.</li>
+        <li><span class="tile mini ok">A</span> huruf benar dan posisinya tepat.</li>
+        <li><span class="tile mini pres">B</span> huruf ada di kata, tapi posisinya salah.</li>
+        <li><span class="tile mini abs">C</span> huruf tidak ada di kata.</li>
+        <li>Poin: <b>100</b> untuk menjawab benar + sampai <b>400</b> bonus kecepatan (makin cepat makin besar). Salah semua = 0 poin.</li>
+        <li>Pemain lain hanya terlihat warnanya saja, hurufnya rahasia.</li>
+      </ul>
+      <button class="btn primary" id="help-close">Mengerti</button>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
