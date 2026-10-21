@@ -9,9 +9,9 @@
   --tile-border: #d3d6e0;
   --key: #dde0ec;
   --key-text: #2c3345;
-  --ok: #29ed0b;
+  --ok: #25d00b;
   --pres: #f08a1c;
-  --pres-text: #1a1200;
+  --pres-text: #060606;
   --abs: #4a4f5c;
   --primary: #4f6df5;
   --primary-text: #ffffff;
@@ -35,9 +35,9 @@ body.skill { --chrome: 450px; }
   --tile-border: #3a4054;
   --key: #343a4e;
   --key-text: #eceef5;
-  --ok: #2f6fe0;
+  --ok: #25d00b;
   --pres: #f0932b;
-  --pres-text: #1a1200;
+  --pres-text: #0d0d0d;
   --abs: #3b3f4d;
   --primary: #6f87ff;
   --primary-text: #0e1220;
