@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Panel Emoticon</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .wrap { width: 100%; max-width: 640px; margin: 0 auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+  .st-item { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .st-item .img { width: 96px; height: 96px; border-radius: 8px; background:
+    conic-gradient(#8883 25%, transparent 0 50%, #8883 0 75%, transparent 0) 0 0 / 16px 16px; display: grid; place-items: center; }
+  .st-item img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .btn.danger { color: var(--danger); border-color: var(--danger); background: transparent; width: 100%; }
+  .empty { color: var(--muted); font-size: 14px; padding: 10px 2px; }
+  .preview { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+  .preview .img { width: 96px; height: 96px; border-radius: 8px; border: 1px solid var(--border); background:
+    conic-gradient(#8883 25%, transparent 0 50%, #8883 0 75%, transparent 0) 0 0 / 16px 16px; display: grid; place-items: center; flex: none; }
+  .preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .ok-banner { background: color-mix(in srgb, var(--ok) 12%, transparent); border: 1px solid var(--ok); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .warn-banner { background: color-mix(in srgb, var(--pres) 20%, transparent); border: 1px solid var(--pres); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .bad-banner { background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid var(--danger); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  input[type='password'] { font: inherit; font-size: 16px; color: var(--text); background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px; padding: 11px 12px; width: 100%; outline: none; }
+  input[type='password']:focus { border-color: var(--primary); }
+  input[type='file'] { font: inherit; font-size: 14px; width: 100%; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">K</span><span class="brand-text">Panel <small>EMOTICON</small></span></div>
+  <div class="top-actions">
+    <button class="icon-btn" id="btn-theme" aria-label="Ganti tema">☾</button>
+  </div>
+</header>
+
+<div class="wrap" id="root">
+  <div class="card" id="loading">Memuat…</div>
+
+  <div class="card hidden" id="disabled">
+    <h2>Panel belum diaktifkan</h2>
+    <p class="muted">Server belum punya username dan password admin. Di Render, buka <b>Environment</b> lalu isi <b>ADMIN_USER</b> dan <b>ADMIN_PASSWORD</b> (minimal 8 karakter), simpan, dan tunggu deploy selesai.</p>
+  </div>
+
+  <div class="card hidden" id="login">
+    <h2>Masuk admin</h2>
+    <form id="login-form" autocomplete="on">
+      <label class="field"><span>Username</span><input id="u" type="text" name="username" autocomplete="username" required></label>
+      <label class="field"><span>Password</span><input id="p" type="password" name="password" autocomplete="current-password" required></label>
+      <button class="btn primary big" type="submit" id="login-btn">Masuk</button>
+      <p class="err" id="login-err"></p>
+    </form>
+  </div>
+
+  <div class="hidden" id="panel">
+    <div class="row-between" style="margin-bottom:12px">
+      <h2 style="margin:0">Kelola emoticon</h2>
+      <button class="btn" id="logout">Keluar</button>
+    </div>
+    <div id="storage"></div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row-between"><h3 style="margin:0">Emoticon aktif</h3><span class="count" id="count">0/5</span></div>
+      <div class="grid" id="grid" style="margin-top:12px"></div>
+      <div class="empty hidden" id="empty">Belum ada emoticon. Tambahkan di bawah.</div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="margin-top:0">Tambah emoticon (foto)</h3>
+      <p class="muted small">Pilih foto. Otomatis diperkecil jadi stiker persegi (±192 px) agar hemat kuota. Maksimal 5 emoticon.</p>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/*">
+      <div class="preview hidden" id="preview">
+        <div class="img"><img id="prev-img" alt="Pratinjau"></div>
+        <div>
+          <div class="small muted" id="prev-info"></div>
+          <button class="btn primary" id="add-btn" style="margin-top:8px">Tambahkan</button>
+        </div>
+      </div>
+      <p class="err" id="up-err"></p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/admin.js"></script>
+</body>
+</html>

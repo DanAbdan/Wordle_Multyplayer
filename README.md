@@ -1,42 +1,84 @@
 # Tebak Kata KBBI (Wordle multiplayer)
 
-Game tebak kata 5 huruf berbahasa Indonesia, bisa dimainkan bareng teman (maks. 12 pemain per room).
+Game tebak kata 5 huruf berbahasa Indonesia, bisa dimainkan bareng teman (maks. **24 pemain** per room).
 
+## Fitur
 - Gabung lewat **link undangan** atau **kode room** (5 huruf)
 - Semua pemain menebak **kata yang sama secara bersamaan**, skor berdasarkan kecepatan
 - Host mengatur **jumlah ronde** (1-20) dan **waktu per ronde** (30 dtk - 10 menit)
-- Leaderboard per room + podium di akhir game
-- Tampilan terang + dark mode, responsif di HP dan desktop
-- Kata tebakan harus ada di daftar KBBI (9.015 kata 5 huruf), kata jawaban dipilih dari ±780 kata umum
+- **2 mode**: Normal dan Skill (dipilih saat membuat room, host bisa mengganti di lobi)
+- **Stiker**: maks. 5 foto yang kamu upload lewat panel admin; pemain mengirimnya lewat tombol 🙂
+- **Warna ramah buta warna** (biru, oranye, abu-abu) plus tanda di ubin; tidak lagi hijau-kuning
+- Leaderboard per room + podium di akhir game, dark mode, responsif HP dan desktop
+- Kata tebakan harus ada di daftar KBBI (9.015 kata 5 huruf), jawaban dipilih dari ±780 kata umum
+
+## Mode Skill
+Tiap **3 ronde** (ronde 1, 4, 7, ...) setiap pemain dapat **1 skill acak**, selalu beda dari skill sebelumnya. Skill sekali pakai selama 3 ronde itu.
+
+| Skill | Efek |
+|---|---|
+| 🔍 Intip | Menampilkan 1 huruf jawaban di posisinya |
+| 🚫 Coret | Mencoret 3 huruf yang pasti tidak ada di jawaban |
+| ❄️ Bekukan | Membekukan pemain peringkat teratas selama 6 detik (tidak bisa mengetik) |
+| 🛡️ Perisai | Otomatis menangkal 1 serangan Bekukan |
+| ⚡ Skor Ganda | Poin ronde itu ×2 kalau benar, tetapi −100 kalau gagal |
+
+## Hemat bandwidth
+Server hanya mengirim perubahan kecil saat ada tebakan, bukan seluruh data room. Hasil ukur: **1 game 24 pemain (4 ronde) ≈ 3,2 MB** total. Jatah gratis Render 5 GB/bulan cukup untuk ribuan game. Room yang isinya lebih sedikit memakai lebih sedikit lagi.
 
 ---
 
-## Cara deploy gratis (tanpa coding, ±10 menit)
+# Update dari versi lama (kamu sudah punya game di Render)
 
-Kamu butuh 2 akun gratis: **GitHub** dan **Render**.
+## A. Ganti file di GitHub
+1. Ekstrak zip ini di komputermu.
+2. Buka repo `tebak-kata-kbbi` di GitHub, klik **Add file → Upload files**.
+3. Seret **semua isi folder hasil ekstrak** (`server.js`, `package.json`, `README.md`, folder `public`, folder `data`, dll.) ke halaman itu. File lama dengan nama sama akan tertimpa.
+4. Klik **Commit changes**. Render otomatis deploy ulang (2-5 menit).
 
-### 1. Taruh kode di GitHub
-1. Ekstrak file zip ini di komputermu.
-2. Buka https://github.com, login/daftar, lalu klik **New repository**. Beri nama `tebak-kata-kbbi`, pilih **Public**, klik **Create repository**.
-3. Di halaman repo klik **uploading an existing file**, lalu **seret semua isi folder hasil ekstrak** (`server.js`, `package.json`, `render.yaml`, folder `public`, folder `data`, dll.) ke halaman itu. Pastikan folder `public` dan `data` ikut terupload.
-4. Klik **Commit changes**.
+## B. Siapkan penyimpanan permanen gratis (Upstash)
+Tanpa langkah ini panel admin tetap jalan, tapi stiker **hilang setiap server restart/tidur** (paket gratis Render tidak punya disk permanen).
 
-### 2. Deploy di Render
-1. Buka https://render.com dan **Sign up dengan akun GitHub**.
-2. Klik **New +** lalu **Blueprint**, pilih repo `tebak-kata-kbbi`, klik **Apply**.
-   (Kalau tidak ada menu Blueprint: **New + > Web Service**, pilih repo, isi *Build Command* `npm install`, *Start Command* `npm start`, *Instance Type* **Free**.)
-3. Tunggu 2-5 menit sampai statusnya **Live**. Link game ada di bagian atas halaman, bentuknya `https://tebak-kata-kbbi-xxxx.onrender.com`.
-4. Buka link itu, buat room, lalu kirim link undangan ke teman-temanmu.
+1. Buka https://upstash.com, klik **Sign up** (bisa pakai akun Google atau GitHub). Paket gratis, tanpa kartu kredit.
+2. Di Console, buka tab **Redis**, klik **Create Database**.
+3. Isi nama `tebak-kata`, pilih region terdekat (mis. **Singapore**), pilih paket **Free**, klik **Create**.
+4. Di halaman database, cari bagian **REST API** (tab `.env`). Salin dua nilai: `UPSTASH_REDIS_REST_URL` dan `UPSTASH_REDIS_REST_TOKEN`. (Tampilan Upstash bisa sedikit berbeda dari ini, tapi dua nilai itu selalu ada.)
 
-### Hal yang perlu diketahui (paket gratis Render)
-- Kalau tidak ada yang membuka game selama ±15 menit, server "tidur". Pembukaan pertama setelah itu butuh ±30-60 detik. **Buka link-nya 1 menit sebelum mulai main.**
-- Room disimpan di memori server, jadi kalau server tidur/restart, room yang sedang berjalan hilang (buat room baru saja).
-- Selama game berjalan dan ada pemain tersambung, server tetap aktif.
+## C. Isi Environment di Render
+1. Buka https://dashboard.render.com, pilih service `tebak-kata-kbbi`, buka menu **Environment**.
+2. Klik **Add Environment Variable** dan isi 4 variabel ini:
+
+| Key | Isi |
+|---|---|
+| `ADMIN_USER` | username pilihanmu (min. 3 huruf) |
+| `ADMIN_PASSWORD` | password panjang dan sulit ditebak (min. 8 karakter, makin panjang makin aman) |
+| `UPSTASH_REDIS_REST_URL` | nilai dari Upstash langkah B.4 |
+| `UPSTASH_REDIS_REST_TOKEN` | nilai dari Upstash langkah B.4 |
+
+3. Klik **Save Changes**. Render deploy ulang otomatis.
+4. Jangan bagikan username/password ke siapa pun, dan jangan menulisnya di GitHub.
+
+## D. Pakai panel admin
+1. Buka `https://NAMA-SERVICEMU.onrender.com/admin` lalu login.
+2. Pilih foto, cek pratinjau, klik tambah. Foto otomatis dikecilkan agar hemat. Maksimal **5 stiker**; hapus salah satu kalau mau ganti.
+3. Di bagian atas panel ada status penyimpanan. Harus tertulis **"Tersimpan permanen (Upstash)"**. Kalau muncul peringatan, cek lagi dua nilai Upstash di Render.
+4. Perubahan langsung muncul di pemain yang sedang online, tanpa deploy.
+
+Keamanan panel: password hanya ada di Environment Render (bukan di kode), login dibatasi 5 percobaan lalu dikunci sementara, cookie sesi aman, dan hanya file foto yang diterima (GIF dan SVG ditolak).
 
 ---
+
+# Deploy dari nol (belum pernah deploy)
+1. Taruh semua isi zip ke repo GitHub baru (Public) lewat **Add file → Upload files**.
+2. Di https://render.com daftar dengan akun GitHub, klik **New + → Blueprint**, pilih repo, klik **Apply**. (Kalau tidak ada Blueprint: **New + → Web Service**, Build Command `npm install`, Start Command `npm start`, Instance Type **Free**.)
+3. Lanjut ke langkah **B**, **C**, dan **D** di atas.
+
+## Hal yang perlu diketahui (paket gratis Render)
+- Server "tidur" kalau 15 menit tidak ada pengunjung; buka pertama setelah itu butuh ±30-60 detik. **Buka link 1 menit sebelum mulai main.**
+- Room disimpan di memori server, jadi kalau server restart, room yang sedang berjalan hilang. Stiker aman karena disimpan di Upstash.
+- Render bisa me-restart server kapan saja, jadi jangan menjadwalkan acara penting tanpa cadangan.
 
 ## Coba di komputer sendiri (opsional)
-
 Butuh Node.js 18+.
 
 ```
@@ -44,11 +86,10 @@ npm install
 npm start
 ```
 
-Buka http://localhost:3000. Teman di WiFi yang sama bisa gabung lewat `http://IP-KOMPUTERMU:3000`.
+Buka http://localhost:3000. Panel admin di `/admin` aktif kalau `ADMIN_USER` dan `ADMIN_PASSWORD` diisi.
 
 ## Mengubah daftar kata
-
-- `data/valid.txt`: semua kata yang boleh ditebak (satu kata per baris, 5 huruf, huruf kecil)
+- `data/valid.txt`: semua kata yang boleh ditebak (satu per baris, 5 huruf, huruf kecil)
 - `data/answers.txt`: kata yang bisa jadi jawaban (harus ada juga di `valid.txt`)
 
-Daftar kata berasal dari kompilasi komunitas (repo `damzaky/kumpulan-kata-bahasa-indonesia-KBBI`), bukan data resmi dari Badan Bahasa, jadi mungkin ada kata KBBI yang belum masuk atau ada entri yang kurang lazim.
+Daftar kata berasal dari kompilasi komunitas (repo `damzaky/kumpulan-kata-bahasa-indonesia-KBBI`), bukan data resmi Badan Bahasa, jadi mungkin ada kata KBBI yang belum masuk.

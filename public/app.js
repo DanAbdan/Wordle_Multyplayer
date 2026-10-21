@@ -8,6 +8,14 @@
     return e;
   };
 
+  const SKILLS = {
+    intip: { ico: '🔍', name: 'Intip', desc: 'Tampilkan 1 huruf jawaban di posisinya.' },
+    coret: { ico: '🚫', name: 'Coret', desc: 'Coret 3 huruf yang pasti tidak ada di jawaban.' },
+    bekukan: { ico: '❄️', name: 'Bekukan', desc: 'Bekukan pemain peringkat teratas selama 6 detik.' },
+    perisai: { ico: '🛡️', name: 'Perisai', desc: 'Otomatis menangkal 1 serangan Bekukan.' },
+    ganda: { ico: '⚡', name: 'Skor Ganda', desc: 'Poin ronde ini ×2 jika benar, −100 jika gagal.' },
+  };
+
   // ---------- Tema ----------
   const root = document.documentElement;
   function applyTheme(t) {
@@ -36,7 +44,7 @@
   function colorFor(name) {
     let h = 0;
     for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-    return `hsl(${h}, 55%, 46%)`;
+    return `hsl(${h}, 55%, 40%)`;
   }
   function avatar(name) {
     const a = el('div', 'avatar', (name[0] || '?').toUpperCase());
@@ -119,10 +127,31 @@
         session = { code: m.code, token: m.token, name: session && session.name ? session.name : $('in-name').value.trim() };
         store('session', JSON.stringify(session));
         history.replaceState(null, '', '/?room=' + m.code);
+        loadStickers();
         break;
       case 'state':
         offset = m.serverNow - Date.now();
         onState(m);
+        break;
+      case 'pd':
+        onDelta(m);
+        break;
+      case 'my':
+        if (st) {
+          st.my = m.my;
+          renderSkill();
+          renderBoard();
+          updateKeys();
+        }
+        break;
+      case 'fx':
+        onFx(m);
+        break;
+      case 'emote':
+        showEmote(m);
+        break;
+      case 'note':
+        toast(m.msg, 2200);
         break;
       case 'invalid':
         pending = false;
@@ -154,8 +183,10 @@
     myId = null;
     history.replaceState(null, '', '/');
     $('modal-result').classList.add('hidden');
+    document.body.classList.remove('skill');
     showScreen('home');
     updateJoinBanner();
+    updateFab();
     if (msg) setHomeError(msg);
   }
 
@@ -165,6 +196,24 @@
   try { nameInput.value = localStorage.getItem('nick') || ''; } catch {}
   const urlCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5);
   if (urlCode) codeInput.value = urlCode;
+
+  let chosenMode = 'normal';
+  try { if (localStorage.getItem('mode') === 'skill') chosenMode = 'skill'; } catch {}
+  function paintMode() {
+    for (const b of document.querySelectorAll('.mode-card')) {
+      const on = b.dataset.mode === chosenMode;
+      b.classList.toggle('selected', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+  }
+  for (const b of document.querySelectorAll('.mode-card')) {
+    b.onclick = () => {
+      chosenMode = b.dataset.mode;
+      try { localStorage.setItem('mode', chosenMode); } catch {}
+      paintMode();
+    };
+  }
+  paintMode();
 
   function setHomeError(msg) { $('home-err').textContent = msg || ''; }
   function updateJoinBanner() {
@@ -193,7 +242,7 @@
     setHomeError('');
     leaving = false;
     session = { name };
-    connect(() => send({ t: 'create', name }));
+    connect(() => send({ t: 'create', name, mode: chosenMode }));
   };
   function joinNow() {
     const name = getName();
@@ -224,11 +273,22 @@
   }
 
   // ---------- Lobby ----------
-  const timeOptions = [30, 60, 90, 120, 180, 300, 600];
   function isHost() { return st && st.hostId === myId; }
+
+  const skillList = $('skill-list');
+  for (const s of Object.values(SKILLS)) {
+    const li = el('li');
+    li.appendChild(el('span', 'ic', s.ico));
+    const d = el('div');
+    d.appendChild(el('b', '', s.name));
+    d.appendChild(el('span', '', s.desc));
+    li.appendChild(d);
+    skillList.appendChild(li);
+  }
 
   function renderLobby() {
     $('lobby-code').textContent = st.code;
+    $('max-note').textContent = st.maxPlayers;
     const host = isHost();
     $('rounds-val').textContent = st.settings.rounds;
     $('rounds-dec').disabled = !host || st.settings.rounds <= 1;
@@ -236,6 +296,10 @@
     const sel = $('time-sel');
     sel.value = String(st.settings.time);
     sel.disabled = !host;
+    const msel = $('mode-sel');
+    msel.value = st.settings.mode;
+    msel.disabled = !host;
+    $('skill-info').classList.toggle('hidden', st.settings.mode !== 'skill');
     $('settings-note').textContent = host ? '' : 'Hanya host yang bisa mengubah pengaturan.';
     $('btn-start').classList.toggle('hidden', !host);
     $('wait-note').textContent = host ? '' : 'Menunggu host memulai game…';
@@ -265,11 +329,12 @@
     want = Object.assign({}, want || st.settings, patch);
     want.rounds = Math.min(20, Math.max(1, want.rounds));
     $('rounds-val').textContent = want.rounds;
-    send({ t: 'settings', rounds: want.rounds, time: want.time });
+    send({ t: 'settings', rounds: want.rounds, time: want.time, mode: want.mode });
   }
   $('rounds-dec').onclick = () => changeSettings({ rounds: (want || st.settings).rounds - 1 });
   $('rounds-inc').onclick = () => changeSettings({ rounds: (want || st.settings).rounds + 1 });
   $('time-sel').onchange = (e) => changeSettings({ time: Number(e.target.value) });
+  $('mode-sel').onchange = (e) => changeSettings({ mode: e.target.value });
   $('btn-start').onclick = () => send({ t: 'start' });
   $('btn-copy-code').onclick = async () => toast((await copyText(st.code)) ? 'Kode room disalin' : 'Gagal menyalin');
   const inviteLink = () => location.origin + '/?room=' + st.code;
@@ -320,14 +385,18 @@
   let pending = false;
   let pendingTimer;
   let shownRows = 0;
+  let keyRows = 0; // jumlah baris yang animasinya sudah selesai (untuk warna keyboard)
   let lastRound = -1;
   let skipAnim = false;
-  let keyTimer;
 
   function me() { return st && st.players.find((p) => p.id === myId); }
+  function frozenNow() {
+    const m = me();
+    return !!(m && m.frozenUntil > Date.now() + offset);
+  }
   function canType() {
     const m = me();
-    return st && st.phase === 'playing' && m && !m.done && !m.late && !pending;
+    return st && st.phase === 'playing' && m && !m.done && !m.late && !pending && !frozenNow();
   }
 
   function setTile(t, letter, cls) {
@@ -338,13 +407,14 @@
 
   function renderBoard() {
     const guesses = st.myGuesses;
+    const hint = st.my && st.my.hint;
     if (st.round !== lastRound) {
       lastRound = st.round;
       shownRows = 0;
+      keyRows = 0;
       cur = '';
       pending = false;
       skipAnim = guesses.length > 0; // sambung ulang di tengah ronde
-      clearTimeout(keyTimer);
       for (const k of Object.values(keyEls)) k.className = 'key';
       for (const r of rows) { r.row.classList.remove('win', 'shake'); r.tiles.forEach((t) => setTile(t, '')); }
     }
@@ -355,13 +425,18 @@
         if (skipAnim) {
           g.w.split('').forEach((ch, i) => setTile(rows[r].tiles[i], ch, clsFor(g.p[i])));
           shownRows = r + 1;
+          keyRows = r + 1;
           if (g.p === '22222') rows[r].row.classList.add('win');
         } else {
           animateRow(r, g);
           shownRows = r + 1;
         }
       } else if (r === guesses.length && st.phase === 'playing') {
-        for (let c = 0; c < 5; c++) setTile(rows[r].tiles[c], cur[c] || '');
+        for (let c = 0; c < 5; c++) {
+          if (cur[c]) setTile(rows[r].tiles[c], cur[c]);
+          else if (hint && hint.pos === c) setTile(rows[r].tiles[c], hint.letter.toUpperCase(), 'hint');
+          else setTile(rows[r].tiles[c], '');
+        }
       } else if (r >= guesses.length) {
         for (let c = 0; c < 5; c++) setTile(rows[r].tiles[c], '');
       }
@@ -381,10 +456,10 @@
         t.classList.add('flip');
       }, i * 250 + 275);
     });
-    // setelah semua ubin selesai: kunci warna, update keyboard, animasi menang
     setTimeout(() => {
       tiles.forEach((t) => { t.classList.remove('flip'); t.style.animationDelay = ''; });
       if (g.p === '22222') rows[r].row.classList.add('win');
+      keyRows = Math.max(keyRows, r + 1);
       updateKeys();
     }, 5 * 250 + 700);
   }
@@ -392,13 +467,16 @@
   function updateKeys() {
     if (!st) return;
     const best = {};
-    for (const g of st.myGuesses) {
+    for (const g of st.myGuesses.slice(0, keyRows)) {
       g.w.split('').forEach((ch, i) => {
         const v = Number(g.p[i]);
         if (best[ch] === undefined || v > best[ch]) best[ch] = v;
       });
     }
+    for (const k of Object.values(keyEls)) k.className = 'key';
     for (const [ch, v] of Object.entries(best)) if (keyEls[ch]) keyEls[ch].className = 'key ' + (v === 2 ? 'ok' : v === 1 ? 'pres' : 'abs');
+    const cut = (st.my && st.my.coret) || [];
+    for (const ch of cut) if (keyEls[ch] && best[ch] === undefined) keyEls[ch].className = 'key abs cut';
   }
 
   function shakeRow() {
@@ -430,19 +508,68 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-    if (!st || !$('screen-game') || $('screen-game').classList.contains('hidden')) return;
+    if (!st || $('screen-game').classList.contains('hidden')) return;
     if (e.key === 'Enter') e.preventDefault();
     handleKey(e.key);
   });
 
+  // ---------- Skill ----------
+  function nextSkillRound() {
+    const b = st.skillBlock || 3;
+    const next = st.round - ((st.round - 1) % b) + b;
+    return next <= st.settings.rounds ? next : null;
+  }
+
+  function renderSkill() {
+    const bar = $('skillbar');
+    const on = !!(st && st.settings.mode === 'skill' && st.phase !== 'lobby');
+    document.body.classList.toggle('skill', on);
+    if (!on) { bar.classList.add('hidden'); return; }
+    bar.classList.remove('hidden');
+    const my = st.my;
+    const sk = my && my.skill;
+    const btn = $('sk-use');
+    const m = me();
+    if (!sk) {
+      $('sk-ico').textContent = '…';
+      $('sk-name').textContent = 'Skill';
+      $('sk-desc').textContent = 'Menunggu skill…';
+      btn.textContent = 'Pakai';
+      btn.disabled = true;
+      return;
+    }
+    const def = SKILLS[sk.id];
+    $('sk-ico').textContent = def.ico;
+    $('sk-name').textContent = 'Skill: ' + def.name;
+    const nx = nextSkillRound();
+    const tail = nx ? ` Skill baru di ronde ${nx}.` : '';
+    let desc = def.desc;
+    if (sk.id === 'intip' && my.hint) desc = `Huruf ke-${my.hint.pos + 1} adalah ${my.hint.letter.toUpperCase()}.`;
+    else if (sk.id === 'coret' && my.coret && my.coret.length) desc = `Tidak ada di jawaban: ${my.coret.join(', ').toUpperCase()}.`;
+    else if (sk.id === 'ganda' && my.ganda) desc = 'Aktif! Poin ×2 jika benar, −100 jika gagal.';
+    else if (sk.used) desc = 'Sudah dipakai.';
+    $('sk-desc').textContent = desc + tail;
+    if (sk.id === 'perisai') {
+      btn.textContent = sk.used ? 'Terpakai' : 'Otomatis';
+      btn.disabled = true;
+    } else {
+      btn.textContent = sk.used ? 'Terpakai' : 'Pakai';
+      btn.disabled = sk.used || st.phase !== 'playing' || !m || m.done || m.late;
+    }
+  }
+  $('sk-use').onclick = () => send({ t: 'skill' });
+
   // ---------- Panel pemain ----------
+  let frozenKey = '';
   function renderSide() {
     const wrap = $('side-players');
     wrap.textContent = '';
     $('side-code').textContent = 'Room ' + st.code;
+    const now = Date.now() + offset;
     const sorted = st.players.map((p, i) => ({ p, i })).sort((a, b) => b.p.score - a.p.score || a.i - b.i).map((x) => x.p);
     for (const p of sorted) {
       const c = el('div', 'pcard' + (p.id === myId ? ' me' : '') + (p.connected ? '' : ' off'));
+      c.title = p.name;
       c.appendChild(el('div', 'pn', (p.host ? '👑 ' : '') + p.name));
       const g = el('div', 'mini-grid');
       for (let r = 0; r < 6; r++) {
@@ -456,6 +583,7 @@
         if (p.solved) { status = '✓ Benar!'; good = true; }
         else if (p.late) status = 'Menunggu';
         else if (p.done) status = 'Habis';
+        else if (p.frozenUntil > now) status = '❄ Beku';
         else status = `${p.rows.length}/6`;
       }
       if (!p.connected) status = 'terputus';
@@ -476,7 +604,10 @@
       nm.textContent = p.name + (p.id === myId ? ' (kamu)' : '');
       tr.appendChild(nm);
       if (mode === 'round') {
-        tr.appendChild(el('td', 'plus', p.solved ? '+' + p.roundPoints + (p.solvedMs != null ? ` · ${(p.solvedMs / 1000).toFixed(1)}s` : '') : '—'));
+        const cell = p.solved
+          ? '+' + p.roundPoints + (p.solvedMs != null ? ` · ${(p.solvedMs / 1000).toFixed(1)}s` : '')
+          : p.roundPoints < 0 ? '−' + Math.abs(p.roundPoints) + ' ⚡' : '—';
+        tr.appendChild(el('td', 'plus', cell));
       } else {
         tr.appendChild(el('td', 'plus', `benar ${p.solvedCount}/${st.settings.rounds}`));
       }
@@ -559,6 +690,114 @@
     }
   }
 
+  // ---------- Stiker & efek ----------
+  let stickers = [];
+  let lastEmote = 0;
+  const tray = $('tray');
+  const fab = $('btn-stickers');
+
+  function updateFab() {
+    fab.classList.toggle('hidden', !(st && stickers.length));
+    if (!(st && stickers.length)) tray.classList.add('hidden');
+  }
+  let traySig = '';
+  function renderTray() {
+    traySig = stickers.map((s) => s.id).join(',');
+    tray.textContent = '';
+    for (const s of stickers) {
+      const b = el('button');
+      b.type = 'button';
+      b.setAttribute('aria-label', 'Kirim stiker');
+      const img = el('img');
+      img.src = '/s/' + s.id;
+      img.alt = '';
+      img.draggable = false;
+      b.appendChild(img);
+      b.onclick = () => {
+        const now = Date.now();
+        if (now - lastEmote < 1200) return toast('Pelan-pelan ya…', 900);
+        lastEmote = now;
+        send({ t: 'emote', sid: s.id });
+        tray.classList.add('hidden');
+      };
+      tray.appendChild(b);
+    }
+  }
+  async function loadStickers() {
+    try {
+      const r = await fetch('/api/stickers', { cache: 'no-store' });
+      const j = await r.json();
+      stickers = Array.isArray(j.stickers) ? j.stickers.slice(0, 5) : [];
+      for (const s of stickers) new Image().src = '/s/' + s.id; // isi cache browser
+    } catch {}
+    if (stickers.map((s) => s.id).join(',') !== traySig) renderTray(); // hanya bangun ulang kalau daftar berubah
+    updateFab();
+  }
+  fab.onclick = () => {
+    if (!tray.classList.contains('hidden')) return tray.classList.add('hidden');
+    renderTray();
+    tray.classList.remove('hidden');
+    loadStickers(); // segarkan daftar diam-diam (tidak membuka/menutup tray)
+  };
+  document.addEventListener('click', (e) => {
+    if (!tray.classList.contains('hidden') && !tray.contains(e.target) && e.target !== fab) tray.classList.add('hidden');
+  });
+
+  const feed = $('feed');
+  function pushFeed(node) {
+    feed.appendChild(node);
+    while (feed.children.length > 4) feed.firstChild.remove();
+    setTimeout(() => node.remove(), 3200);
+  }
+  function showEmote(m) {
+    if (!st || !/^[a-f0-9]{8}$/.test(String(m.sid))) return;
+    const p = st.players.find((x) => x.id === m.from);
+    const d = el('div', 'fx');
+    const img = el('img');
+    img.src = '/s/' + m.sid;
+    img.alt = 'stiker';
+    d.appendChild(img);
+    d.appendChild(el('span', '', p ? p.name : '?'));
+    pushFeed(d);
+  }
+  function onFx(m) {
+    if (!st) return;
+    const to = st.players.find((p) => p.id === m.to);
+    const from = st.players.find((p) => p.id === m.from);
+    if (!to || !from) return;
+    if (m.k === 'freeze') {
+      if (!m.blocked) {
+        to.frozenUntil = m.until;
+        if (to.id === myId) toast('❄ Kamu dibekukan oleh ' + from.name + '!', 2200);
+      }
+      const d = el('div', 'fx text', m.blocked ? `🛡️ Perisai ${to.name} menangkal Bekukan dari ${from.name}!` : `❄️ ${from.name} membekukan ${to.name}!`);
+      pushFeed(d);
+      renderSide();
+    }
+  }
+
+  // ---------- Update kecil dari server (hemat bandwidth) ----------
+  function onDelta(d) {
+    if (!st) return;
+    const p = st.players.find((x) => x.id === d.id);
+    if (!p) return;
+    if (p.rows.length < d.n) p.rows.push(d.row);
+    p.done = d.done;
+    p.solved = d.solved;
+    p.score = d.score;
+    p.roundPoints = d.rp;
+    p.solvedMs = d.sm;
+    p.solvedCount = d.sc;
+    if (d.id === myId && d.w && st.myGuesses.length < d.n) {
+      st.myGuesses.push({ w: d.w, p: d.row });
+      cur = '';
+      pending = false;
+    }
+    renderBoard();
+    renderSide();
+    renderSkill();
+  }
+
   // ---------- Render utama ----------
   function onState(m) {
     const prev = st;
@@ -574,7 +813,9 @@
 
   function render() {
     if (!st) return;
+    updateFab();
     if (st.phase === 'lobby') {
+      document.body.classList.remove('skill');
       showScreen('lobby');
       $('modal-result').classList.add('hidden');
       resultKey = '';
@@ -583,7 +824,9 @@
     }
     showScreen('game');
     $('round-tag').textContent = `Ronde ${st.round}/${st.settings.rounds}`;
+    renderSkill();
     renderBoard();
+    updateKeys();
     renderSide();
     renderResult();
     const m = me();
@@ -617,6 +860,16 @@
         const s = Math.max(0, Math.ceil((st.nextAt - now) / 1000));
         n.textContent = st.round >= st.settings.rounds ? `Hasil akhir dalam ${s} dtk…` : `Ronde berikutnya otomatis dalam ${s} dtk…`;
       }
+    }
+    // efek beku
+    const m = me();
+    const fz = !!(m && st.phase === 'playing' && m.frozenUntil > now);
+    $('frozen').classList.toggle('hidden', !fz);
+    if (fz) $('fz-num').textContent = Math.max(1, Math.ceil((m.frozenUntil - now) / 1000));
+    const key = st.players.filter((p) => p.frozenUntil > now).map((p) => p.id).join(',');
+    if (key !== frozenKey) {
+      frozenKey = key;
+      if (st.phase !== 'lobby') renderSide();
     }
   }
   setInterval(tick, 250);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <title>Tebak Kata KBBI</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%236aaa64'/><text x='16' y='23' font-size='20' font-weight='800' text-anchor='middle' fill='white' font-family='Arial'>K</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b57d0'/><text x='16' y='23' font-size='20' font-weight='800' text-anchor='middle' fill='white' font-family='Arial'>K</text></svg>">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -30,8 +30,20 @@
         <input id="in-name" type="text" maxlength="14" autocomplete="off" placeholder="Misal: Aran">
       </label>
       <div id="join-banner" class="banner hidden"></div>
+
+      <div class="field">
+        <span id="mode-label">Pilih mode (untuk room baru)</span>
+        <div class="modes" id="mode-pick" role="radiogroup" aria-labelledby="mode-label">
+          <button type="button" class="mode-card selected" data-mode="normal" role="radio" aria-checked="true">
+            <b>Normal</b><small>Tebak kata, adu cepat</small>
+          </button>
+          <button type="button" class="mode-card" data-mode="skill" role="radio" aria-checked="false">
+            <b>Skill</b><small>Ada skill: Intip, Bekukan, dll</small>
+          </button>
+        </div>
+      </div>
       <button class="btn primary" id="btn-create">Buat room baru</button>
-      <div class="or"><span>atau gabung</span></div>
+      <div class="or"><span>atau gabung (ikut mode room)</span></div>
       <div class="join-row">
         <input id="in-code" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="KODE ROOM">
         <button class="btn" id="btn-join">Gabung</button>
@@ -54,10 +66,17 @@
             <button class="btn primary" id="btn-copy-link">Salin link undangan</button>
           </div>
         </div>
-        <p class="muted small">Kirim link atau kode ini ke teman. Maksimal <b>12 pemain</b>.</p>
+        <p class="muted small">Kirim link atau kode ini ke teman. Maksimal <b id="max-note">24</b> pemain.</p>
 
         <h3>Pengaturan</h3>
         <div class="settings">
+          <label class="field">
+            <span>Mode</span>
+            <select id="mode-sel">
+              <option value="normal">Normal</option>
+              <option value="skill">Skill</option>
+            </select>
+          </label>
           <label class="field">
             <span>Jumlah ronde</span>
             <div class="stepper">
@@ -81,13 +100,18 @@
         </div>
         <p class="muted small" id="settings-note"></p>
 
+        <div id="skill-info" class="skill-info hidden">
+          <h3>Skill (ganti setiap 3 ronde)</h3>
+          <ul class="skill-list" id="skill-list"></ul>
+        </div>
+
         <button class="btn primary big" id="btn-start">Mulai game</button>
         <p class="muted small center-text" id="wait-note"></p>
         <button class="btn link" id="btn-leave-lobby">Keluar dari room</button>
       </div>
 
       <div class="card">
-        <h3>Pemain <span class="count" id="lobby-count">1/12</span></h3>
+        <h3>Pemain <span class="count" id="lobby-count">1/24</span></h3>
         <ul class="lobby-players" id="lobby-players"></ul>
       </div>
     </div>
@@ -103,10 +127,17 @@
         </div>
         <div class="timebar"><div id="timebar-fill"></div></div>
 
+        <div id="skillbar" class="skillbar hidden">
+          <div class="sk-ico" id="sk-ico" aria-hidden="true"></div>
+          <div class="sk-txt"><b id="sk-name"></b><span id="sk-desc"></span></div>
+          <button class="btn sm primary" id="sk-use">Pakai</button>
+        </div>
+
         <div class="board-wrap">
           <div id="board" class="board" aria-label="Papan tebakan"></div>
           <div id="countdown" class="overlay hidden"><div><div class="muted">Bersiap…</div><div class="cd-num" id="cd-num">3</div></div></div>
           <div id="spectate" class="overlay hidden"><div class="spectate-msg">Kamu masuk di tengah ronde.<br>Ikut main di ronde berikutnya ya!</div></div>
+          <div id="frozen" class="overlay hidden"><div class="spectate-msg">❄ Kamu dibekukan!<br><span class="cd-small" id="fz-num">6</span> detik</div></div>
         </div>
 
         <div id="keyboard" class="keyboard"></div>
@@ -134,10 +165,12 @@
       <h2>Cara main</h2>
       <ul class="help-list">
         <li>Tebak <b>kata KBBI 5 huruf</b> dalam <b>6 kesempatan</b>. Semua pemain di room menebak kata yang sama dan serentak.</li>
-        <li><span class="tile mini ok">A</span> huruf benar dan posisinya tepat.</li>
-        <li><span class="tile mini pres">B</span> huruf ada di kata, tapi posisinya salah.</li>
-        <li><span class="tile mini abs">C</span> huruf tidak ada di kata.</li>
-        <li>Poin: <b>100</b> untuk menjawab benar + sampai <b>400</b> bonus kecepatan (makin cepat makin besar). Salah semua = 0 poin.</li>
+        <li><span class="tile mini ok">A</span> <b>Biru + tanda ✓</b>: huruf benar dan posisinya tepat.</li>
+        <li><span class="tile mini pres">B</span> <b>Oranye + tanda ●</b>: huruf ada di kata, tapi posisinya salah.</li>
+        <li><span class="tile mini abs">C</span> <b>Abu-abu gelap</b>: huruf tidak ada di kata.</li>
+        <li>Poin: <b>100</b> untuk menjawab benar + sampai <b>400</b> bonus kecepatan. Salah semua = 0 poin.</li>
+        <li><b>Mode Skill:</b> tiap 3 ronde kamu dapat 1 skill baru (sekali pakai): 🔍 Intip, 🚫 Coret, ❄️ Bekukan, 🛡️ Perisai, ⚡ Skor Ganda.</li>
+        <li>Tombol 🙂 di pojok kanan bawah untuk kirim stiker ke teman satu room.</li>
         <li>Pemain lain hanya terlihat warnanya saja, hurufnya rahasia.</li>
       </ul>
       <button class="btn primary" id="help-close">Mengerti</button>
@@ -145,6 +178,9 @@
   </div>
 </main>
 
+<div id="feed" class="feed" aria-live="polite"></div>
+<div id="tray" class="tray hidden"></div>
+<button id="btn-stickers" class="fab hidden" aria-label="Kirim stiker" title="Kirim stiker">🙂</button>
 <div id="toast" class="toast hidden"></div>
 
 <script src="/app.js"></script>
