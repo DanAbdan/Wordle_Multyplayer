@@ -7,8 +7,8 @@ Game tebak kata 5 huruf berbahasa Indonesia, bisa dimainkan bareng teman (maks. 
 - Semua pemain menebak **kata yang sama secara bersamaan**, skor berdasarkan kecepatan
 - Host mengatur **jumlah ronde** (1-20) dan **waktu per ronde** (30 dtk - 10 menit)
 - **2 mode**: Normal dan Skill (dipilih saat membuat room, host bisa mengganti di lobi)
-- **Stiker**: maks. 5 foto yang kamu upload lewat panel admin; pemain mengirimnya lewat tombol 🙂
-- **Warna ramah buta warna** (biru, oranye, abu-abu) plus tanda di ubin; tidak lagi hijau-kuning
+- **Stiker**: maks. 5 foto yang kamu upload lewat panel admin; pemain mengirimnya lewat tombol 🙂 kecil di kanan bawah, dan stikernya muncul kecil tepat di atas profil pengirim
+- **Warna**: tema hijau seperti Wordle (benar = hijau ✓, salah posisi = kuning ●, tidak ada = abu-abu). Ada **Mode buta warna** (biru + oranye) di menu Cara main (?) yang bisa dinyalakan tiap pemain di perangkatnya; tanda ✓ dan ● selalu ada di ubin.
 - Leaderboard per room + podium di akhir game, dark mode, responsif HP dan desktop
 - **Akun pemain** (👤): daftar/masuk dengan username + password, nama dan **foto profil** tetap sama setiap main. Tamu tetap bisa main tanpa akun.
 - **Peringkat mingguan** (🏆, di kanan atas sebelum tombol ?): 2 papan, yaitu **jumlah jawaban benar** dan **streak benar terbanyak**. Dihitung dari semua game (solo atau berapa pun pemainnya), hanya untuk pemain yang login. Minggu = Senin 00:00 sampai Minggu 23:59 WIB, data tiap minggu tersimpan permanen dan minggu lalu bisa dilihat lagi.
@@ -31,6 +31,9 @@ Tiap **3 ronde** (ronde 1, 4, 7, ...) setiap pemain dapat **1 skill acak**, sela
 Server hanya mengirim perubahan kecil saat ada tebakan, bukan seluruh data room. Hasil ukur: **1 game 24 pemain (4 ronde) ≈ 3,2 MB** total. Jatah gratis Render 5 GB/bulan cukup untuk ribuan game. Room yang isinya lebih sedikit memakai lebih sedikit lagi.
 
 ---
+
+## Kalau tampilan berantakan setelah update
+Biasanya file `public/style.css` di GitHub belum terganti (tombol mode jadi polos, stiker besar, menu akun tidak rapi). Cek: buka `https://NAMA-SERVICEMU.onrender.com/style.css` dan cari tulisan `Akun, peringkat`. Kalau tidak ada, upload ulang `public/style.css` ke GitHub (harus di dalam folder `public`, bukan di luar), tunggu deploy, lalu refresh keras (Ctrl+Shift+R).
 
 ## Cara kerja (singkat, buat belajar)
 - **Login**: password tidak disimpan polos, tapi di-*hash* dengan `scrypt` (satu arah, lambat sengaja supaya sulit ditebak). Setelah login, server memberi *cookie* bertanda tangan (HMAC) yang berlaku 30 hari. Cookie itu `HttpOnly`, jadi tidak bisa dibaca script di halaman.

@@ -228,6 +228,20 @@ const assets = new Map();
   }
 })(PUBLIC, '/');
 
+// beri versi pada alamat CSS/JS di halaman HTML (?v=hash), supaya browser tidak memakai file lama yang tersimpan di cache
+for (const page of ['/index.html', '/admin.html']) {
+  const a = assets.get(page);
+  if (!a) continue;
+  let html = a.buf.toString('utf8');
+  html = html.replace(/(href|src)="(\/[A-Za-z0-9_.-]+\.(?:css|js))"/g, (m, attr, p) => {
+    const f = assets.get(p);
+    return f ? `${attr}="${p}?v=${f.etag.replace(/"/g, '').slice(0, 10)}"` : m;
+  });
+  a.buf = Buffer.from(html);
+  a.gz = zlib.gzipSync(a.buf, { level: 9 });
+  a.etag = '"' + crypto.createHash('md5').update(a.buf).digest('hex').slice(0, 20) + '"';
+}
+
 const CSP =
   "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; " +
   "connect-src 'self' ws: wss:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";

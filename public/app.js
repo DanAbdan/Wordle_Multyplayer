@@ -23,6 +23,8 @@
     $('btn-theme').textContent = t === 'dark' ? '☀' : '☾';
     document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#12141b' : '#ffffff';
   }
+  // mode buta warna (opsional)
+  try { if (localStorage.getItem('cb') === '1') root.dataset.cb = '1'; } catch {}
   let savedTheme = null;
   try { savedTheme = localStorage.getItem('theme'); } catch {}
   applyTheme(savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -275,6 +277,11 @@
   codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinNow(); });
 
   // Bantuan
+  $('opt-cb').checked = root.dataset.cb === '1';
+  $('opt-cb').onchange = (e) => {
+    if (e.target.checked) root.dataset.cb = '1'; else delete root.dataset.cb;
+    try { localStorage.setItem('cb', e.target.checked ? '1' : '0'); } catch {}
+  };
   $('btn-help').onclick = () => $('modal-help').classList.remove('hidden');
   $('help-close').onclick = () => $('modal-help').classList.add('hidden');
   $('modal-help').addEventListener('click', (e) => { if (e.target === $('modal-help')) $('modal-help').classList.add('hidden'); });
@@ -321,6 +328,7 @@
     ul.textContent = '';
     for (const p of st.players) {
       const li = el('li');
+      li.dataset.pid = p.id;
       li.appendChild(avatar(p.name, p.av));
       li.appendChild(el('span', 'pname', p.name + (p.id === myId ? ' (kamu)' : '')));
       if (p.host) li.appendChild(el('span', 'badge host', 'Host'));
@@ -581,10 +589,16 @@
     const sorted = st.players.map((p, i) => ({ p, i })).sort((a, b) => b.p.score - a.p.score || a.i - b.i).map((x) => x.p);
     for (const p of sorted) {
       const c = el('div', 'pcard' + (p.id === myId ? ' me' : '') + (p.connected ? '' : ' off'));
+      c.dataset.pid = p.id;
       c.title = p.name;
       const pn = el('div', 'pn');
-      if (p.av) pn.appendChild(avatar(p.name, p.av, 'sm'));
-      pn.appendChild(el('span', '', (p.host ? '👑 ' : '') + p.name));
+      if (p.av || p.host) {
+        const pv = el('span', 'pav');
+        pv.appendChild(avatar(p.name, p.av, 'sm'));
+        if (p.host) pv.appendChild(el('i', 'crown', '👑'));
+        pn.appendChild(pv);
+      }
+      pn.appendChild(el('span', '', p.name));
       c.appendChild(pn);
       const g = el('div', 'mini-grid');
       for (let r = 0; r < 6; r++) {
@@ -770,6 +784,21 @@
   function showEmote(m) {
     if (!st || !/^[a-f0-9]{8}$/.test(String(m.sid))) return;
     const p = st.players.find((x) => x.id === m.from);
+    // utamakan: muncul kecil tepat di atas kartu/profil pengirim; kalau kartunya tidak terlihat, pakai notifikasi kecil
+    const card = [...document.querySelectorAll('[data-pid]')].find((n) => n.dataset.pid === m.from && n.offsetParent !== null);
+    const r = card && card.getBoundingClientRect();
+    if (r && r.bottom > 0 && r.top < window.innerHeight && r.width > 0) {
+      const b = el('div', 'bubble');
+      const img = el('img');
+      img.src = '/s/' + m.sid;
+      img.alt = 'stiker';
+      b.appendChild(img);
+      b.style.left = Math.min(window.innerWidth - 30, Math.max(30, r.left + r.width / 2)) + 'px';
+      b.style.top = Math.max(52, r.top - 4) + 'px';
+      document.body.appendChild(b);
+      setTimeout(() => b.remove(), 3100);
+      return;
+    }
     const d = el('div', 'fx');
     const img = el('img');
     img.src = '/s/' + m.sid;
@@ -925,7 +954,9 @@
   let user = null; // {name, av, week:{benar,best}} kalau login
   function paintUser() {
     $('btn-acc').classList.toggle('on', !!user);
-    $('acc-ico').textContent = user ? '✔' : '👤';
+    const ico = $('acc-ico');
+    ico.textContent = '';
+    if (user) ico.appendChild(avatar(user.name, user.av, 'sm')); else ico.textContent = '👤';
     $('btn-acc').title = user ? 'Akun: ' + user.name : 'Masuk / daftar';
     if (user) { nameInput.value = user.name; }
     else { try { nameInput.value = localStorage.getItem('nick') || ''; } catch { nameInput.value = ''; } }
