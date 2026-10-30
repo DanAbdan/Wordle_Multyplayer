@@ -88,6 +88,71 @@
     }
     s.appendChild(b);
     renderList(j.storageOk);
+    $('ustats').textContent = `Minggu ini: ${j.week}. Perintah ke Upstash sejak server menyala: ${j.commands} (kuota gratis 500.000 per bulan; angka ini reset tiap server restart, lihat angka pasti di dashboard Upstash).` + (j.stableSecret ? '' : ' PERINGATAN: SESSION_SECRET belum diisi, pemain harus login ulang setiap server restart.');
+    loadUsers();
+  }
+
+  async function loadUsers() {
+    const { j } = await api('/admin/api/users', { method: 'GET', headers: {} });
+    renderUsers(j.users || [], j.ready !== false);
+  }
+  function renderUsers(users, ready) {
+    const box = $('ulist');
+    box.textContent = '';
+    $('ucount').textContent = String(users.length);
+    $('uempty').classList.toggle('hidden', users.length > 0);
+    if (!ready) {
+      const b = document.createElement('div');
+      b.className = 'bad-banner';
+      b.textContent = 'Data akun belum termuat dari Upstash. Cek koneksi penyimpanan.';
+      box.appendChild(b);
+    }
+    for (const u of users) {
+      const row = document.createElement('div');
+      row.className = 'u-row';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = u.name + (u.av ? ' 📷' : '');
+      row.appendChild(nm);
+      const act = (label, fn) => {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = label;
+        b.onclick = fn;
+        row.appendChild(b);
+      };
+      act('Reset password', async () => {
+        if (!confirm('Buat password sementara baru untuk ' + u.name + '? Password lama tidak berlaku lagi.')) return;
+        const { j } = await api('/admin/api/users/' + encodeURIComponent(u.name) + '/reset', { method: 'POST', body: '{}' });
+        if (!j.ok) return toast(j.error || 'Gagal');
+        row.textContent = '';
+        const t = document.createElement('div');
+        t.innerHTML = '';
+        t.appendChild(document.createTextNode('Password sementara ' + u.name + ': '));
+        const code = document.createElement('span');
+        code.className = 'temp';
+        code.textContent = j.temp;
+        t.appendChild(code);
+        const n = document.createElement('div');
+        n.className = 'muted small';
+        n.textContent = 'Kirim ke pemainnya, lalu suruh ganti di menu akun. Ini hanya ditampilkan sekali.';
+        t.appendChild(n);
+        row.appendChild(t);
+      });
+      if (u.av) act('Hapus foto', async () => {
+        if (!confirm('Hapus foto profil ' + u.name + '?')) return;
+        const { j } = await api('/admin/api/users/' + encodeURIComponent(u.name) + '/avatar', { method: 'DELETE' });
+        if (!j.ok) return toast(j.error || 'Gagal');
+        renderUsers(j.users, true);
+      });
+      act('Hapus akun', async () => {
+        if (!confirm('Hapus akun ' + u.name + ' beserta fotonya dan datanya di peringkat? Tidak bisa dibatalkan.')) return;
+        const { j } = await api('/admin/api/users/' + encodeURIComponent(u.name), { method: 'DELETE' });
+        if (!j.ok) return toast(j.error || 'Gagal');
+        renderUsers(j.users, true);
+      });
+      box.appendChild(row);
+    }
   }
 
   function renderList(storageOk = true) {

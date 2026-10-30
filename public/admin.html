@@ -26,6 +26,10 @@
   input[type='password'] { font: inherit; font-size: 16px; color: var(--text); background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px; padding: 11px 12px; width: 100%; outline: none; }
   input[type='password']:focus { border-color: var(--primary); }
   input[type='file'] { font: inherit; font-size: 14px; width: 100%; }
+  .u-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .u-row .nm { flex: 1; min-width: 90px; font-weight: 700; }
+  .u-row .btn { padding: 6px 10px; font-size: 13px; }
+  .temp { font-family: monospace; font-size: 18px; font-weight: 800; letter-spacing: 0.05em; user-select: all; }
 </style>
 </head>
 <body>
@@ -60,6 +64,13 @@
       <button class="btn" id="logout">Keluar</button>
     </div>
     <div id="storage"></div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row-between"><h3 style="margin:0">Pengguna terdaftar</h3><span class="count" id="ucount">0</span></div>
+      <p class="muted small" id="ustats"></p>
+      <div id="ulist" style="margin-top:8px"></div>
+      <div class="empty hidden" id="uempty">Belum ada yang mendaftar.</div>
+    </div>
 
     <div class="card" style="margin-top:12px">
       <div class="row-between"><h3 style="margin:0">Emoticon aktif</h3><span class="count" id="count">0/5</span></div>

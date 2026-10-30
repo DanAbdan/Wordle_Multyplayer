@@ -46,9 +46,20 @@
     for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
     return `hsl(${h}, 55%, 40%)`;
   }
-  function avatar(name) {
-    const a = el('div', 'avatar', (name[0] || '?').toUpperCase());
+  function avatar(name, av, size) {
+    const a = el('div', 'avatar' + (size ? ' ' + size : ''), (name[0] || '?').toUpperCase());
     a.style.background = colorFor(name);
+    if (av > 0) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.src = '/av/' + encodeURIComponent(name.toLowerCase()) + '?v=' + av;
+      img.onerror = () => img.remove(); // kalau gagal, tampilkan huruf awal saja
+      a.textContent = '';
+      a.appendChild(img);
+      const t = (name[0] || '?').toUpperCase();
+      img.addEventListener('error', () => { a.textContent = t; });
+    }
     return a;
   }
   function fmtTime(ms) {
@@ -227,6 +238,7 @@
   updateJoinBanner();
 
   function getName() {
+    if (user) return user.name;
     const n = nameInput.value.replace(/\s+/g, ' ').trim();
     if (n.length < 2) {
       setHomeError('Isi nickname dulu (minimal 2 huruf)');
@@ -309,7 +321,7 @@
     ul.textContent = '';
     for (const p of st.players) {
       const li = el('li');
-      li.appendChild(avatar(p.name));
+      li.appendChild(avatar(p.name, p.av));
       li.appendChild(el('span', 'pname', p.name + (p.id === myId ? ' (kamu)' : '')));
       if (p.host) li.appendChild(el('span', 'badge host', 'Host'));
       if (!p.connected) li.appendChild(el('span', 'badge off', 'terputus'));
@@ -570,7 +582,10 @@
     for (const p of sorted) {
       const c = el('div', 'pcard' + (p.id === myId ? ' me' : '') + (p.connected ? '' : ' off'));
       c.title = p.name;
-      c.appendChild(el('div', 'pn', (p.host ? '👑 ' : '') + p.name));
+      const pn = el('div', 'pn');
+      if (p.av) pn.appendChild(avatar(p.name, p.av, 'sm'));
+      pn.appendChild(el('span', '', (p.host ? '👑 ' : '') + p.name));
+      c.appendChild(pn);
       const g = el('div', 'mini-grid');
       for (let r = 0; r < 6; r++) {
         const mr = el('div', 'mini-row');
@@ -656,6 +671,9 @@
         b.onclick = () => send({ t: 'next' });
         const act = el('div', 'modal-actions');
         act.appendChild(b);
+        const cb = el('button', 'btn danger', 'Batalkan game');
+        cb.onclick = askCancel;
+        act.appendChild(cb);
         body.appendChild(act);
       }
     } else {
@@ -667,7 +685,7 @@
         const p = sorted[idx];
         if (!p) continue;
         const d = el('div', 'pod p' + (idx + 1));
-        d.appendChild(avatar(p.name));
+        d.appendChild(avatar(p.name, p.av));
         d.appendChild(el('div', 'nm', p.name));
         d.appendChild(el('div', 'sc', p.score + ' poin'));
         d.appendChild(el('div', 'blk', String(idx + 1)));
@@ -824,6 +842,7 @@
     }
     showScreen('game');
     $('round-tag').textContent = `Ronde ${st.round}/${st.settings.rounds}`;
+    $('btn-cancel').classList.toggle('hidden', !(isHost() && st.phase !== 'final'));
     renderSkill();
     renderBoard();
     updateKeys();
@@ -874,8 +893,311 @@
   }
   setInterval(tick, 250);
 
+  // ---------- Batalkan game ----------
+  function askConfirm(title, text, yesLabel, onYes) {
+    $('confirm-title').textContent = title;
+    $('confirm-text').textContent = text;
+    $('confirm-yes').textContent = yesLabel;
+    $('confirm-yes').onclick = () => { $('modal-confirm').classList.add('hidden'); onYes(); };
+    $('modal-confirm').classList.remove('hidden');
+  }
+  function askCancel() {
+    if (!isHost()) return;
+    askConfirm('Batalkan game?', 'Game berhenti dan semua pemain kembali ke lobi. Poin game ini hilang dan tidak dihitung ke peringkat. Setelah itu kamu bisa mengubah pengaturan lalu mulai lagi.', 'Ya, batalkan', () => send({ t: 'cancel' }));
+  }
+  $('btn-cancel').onclick = askCancel;
+  $('confirm-no').onclick = () => $('modal-confirm').classList.add('hidden');
+  $('modal-confirm').addEventListener('click', (e) => { if (e.target === $('modal-confirm')) $('modal-confirm').classList.add('hidden'); });
+
+  // ---------- API ----------
+  async function api(path, method, body) {
+    const opt = { method: method || 'GET', headers: { 'X-App': '1' }, credentials: 'same-origin' };
+    if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    let r;
+    try { r = await fetch(path, opt); } catch { return { ok: false, error: 'Tidak bisa tersambung ke server' }; }
+    let j = {};
+    try { j = await r.json(); } catch {}
+    if (!r.ok && !j.error) j.error = 'Terjadi kesalahan (' + r.status + ')';
+    return Object.assign({ ok: r.ok }, j);
+  }
+
+  // ---------- Akun ----------
+  let user = null; // {name, av, week:{benar,best}} kalau login
+  function paintUser() {
+    $('btn-acc').classList.toggle('on', !!user);
+    $('acc-ico').textContent = user ? '✔' : '👤';
+    $('btn-acc').title = user ? 'Akun: ' + user.name : 'Masuk / daftar';
+    if (user) { nameInput.value = user.name; }
+    else { try { nameInput.value = localStorage.getItem('nick') || ''; } catch { nameInput.value = ''; } }
+    nameInput.disabled = !!user;
+    $('acc-hint').textContent = user
+      ? 'Masuk sebagai akunmu. Skor game ini dicatat di peringkat mingguan.'
+      : 'Main sebagai tamu (tidak masuk peringkat). Daftar lewat tombol 👤 di kanan atas.';
+  }
+  async function refreshUser() {
+    const r = await api('/api/me');
+    user = r.ok && r.user ? r.user : null;
+    paintUser();
+    return user;
+  }
+
+  const accBody = $('acc-body');
+  let accMode = 'login';
+  function field(label, type, id, ph, ac) {
+    const w = el('div');
+    const l = el('label', '', label);
+    l.htmlFor = id;
+    const i = document.createElement('input');
+    i.id = id; i.type = type; i.placeholder = ph || ''; i.autocomplete = ac || 'off';
+    if (type === 'text') i.maxLength = 14; else i.maxLength = 72;
+    w.appendChild(l); w.appendChild(i);
+    return w;
+  }
+  function msg(node, text, ok) {
+    node.textContent = text || '';
+    node.className = 'acc-msg' + (text ? (ok ? ' okk' : ' err') : '');
+  }
+
+  function renderAcc() {
+    accBody.textContent = '';
+    if (!user) {
+      $('acc-title').textContent = accMode === 'login' ? 'Masuk' : 'Daftar akun';
+      if (session && st) {
+        accBody.appendChild(el('p', 'muted', 'Kamu sedang di dalam room. Keluar dari room dulu untuk masuk atau daftar akun.'));
+        return;
+      }
+      const tabs = el('div', 'tabs');
+      for (const [k, t] of [['login', 'Masuk'], ['register', 'Daftar']]) {
+        const b = el('button', 'tab' + (accMode === k ? ' selected' : ''), t);
+        b.type = 'button';
+        b.onclick = () => { accMode = k; renderAcc(); };
+        tabs.appendChild(b);
+      }
+      accBody.appendChild(tabs);
+      const f = el('form', 'acc-form');
+      f.appendChild(field('Username', 'text', 'f-user', '3-14 huruf/angka', 'username'));
+      f.appendChild(field('Password', 'password', 'f-pass', 'minimal 8 karakter', accMode === 'login' ? 'current-password' : 'new-password'));
+      const m = el('div', 'acc-msg');
+      const sb = el('button', 'btn primary', accMode === 'login' ? 'Masuk' : 'Daftar');
+      sb.type = 'submit';
+      f.appendChild(sb);
+      f.appendChild(m);
+      if (accMode === 'register') f.appendChild(el('p', 'muted small', 'Username dipakai sebagai nama di game dan di peringkat, tidak bisa diganti. Ingat password-mu: belum ada fitur lupa password (hubungi admin untuk reset).'));
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        sb.disabled = true;
+        msg(m, 'Memproses…', true);
+        const r = await api(accMode === 'login' ? '/api/login' : '/api/register', 'POST', { username: $('f-user').value.trim(), password: $('f-pass').value });
+        sb.disabled = false;
+        if (!r.ok) return msg(m, r.error || 'Gagal');
+        user = r.user;
+        paintUser();
+        renderAcc();
+        toast('Halo, ' + user.name + '!');
+      };
+      accBody.appendChild(f);
+      return;
+    }
+    $('acc-title').textContent = 'Akun';
+    const prof = el('div', 'acc-prof');
+    prof.appendChild(avatar(user.name, user.av, 'lg'));
+    prof.appendChild(el('div', 'nm', user.name));
+    const stats = el('div', 'acc-stats');
+    for (const [v, l] of [[user.week.benar, 'jawaban benar minggu ini'], [user.week.best, 'streak terbaik minggu ini']]) {
+      const d = el('div');
+      d.appendChild(el('b', '', String(v)));
+      d.appendChild(el('span', '', l));
+      stats.appendChild(d);
+    }
+    prof.appendChild(stats);
+    accBody.appendChild(prof);
+
+    const sec1 = el('div', 'acc-sec');
+    sec1.appendChild(el('h3', '', 'Foto profil'));
+    const file = document.createElement('input');
+    file.type = 'file'; file.accept = 'image/png,image/jpeg,image/webp'; file.className = 'hidden';
+    const m1 = el('div', 'acc-msg');
+    const bar = el('div', 'row-btns');
+    const bPick = el('button', 'btn', user.av ? 'Ganti foto' : 'Pilih foto');
+    bPick.type = 'button';
+    bPick.onclick = () => file.click();
+    bar.appendChild(bPick);
+    if (user.av) {
+      const bDel = el('button', 'btn', 'Hapus foto');
+      bDel.type = 'button';
+      bDel.onclick = async () => {
+        const r = await api('/api/avatar', 'DELETE');
+        if (!r.ok) return msg(m1, r.error || 'Gagal');
+        user.av = 0; renderAcc();
+      };
+      bar.appendChild(bDel);
+    }
+    file.onchange = async () => {
+      const f = file.files && file.files[0];
+      file.value = '';
+      if (!f) return;
+      msg(m1, 'Memproses foto…', true);
+      let data;
+      try { data = await shrinkImage(f); } catch (e) { return msg(m1, e.message || 'Foto tidak bisa dibaca'); }
+      const r = await api('/api/avatar', 'POST', { data });
+      if (!r.ok) return msg(m1, r.error || 'Gagal mengunggah');
+      user.av = r.av || 1;
+      renderAcc();
+      toast('Foto profil diperbarui');
+    };
+    sec1.appendChild(bar);
+    sec1.appendChild(file);
+    sec1.appendChild(m1);
+    sec1.appendChild(el('p', 'muted small', 'Foto dipotong persegi dan dikecilkan otomatis. Semua pemain di room bisa melihatnya.'));
+    accBody.appendChild(sec1);
+
+    const sec2 = el('form', 'acc-sec acc-form');
+    sec2.appendChild(el('h3', '', 'Ganti password'));
+    sec2.appendChild(field('Password lama', 'password', 'f-old', '', 'current-password'));
+    sec2.appendChild(field('Password baru', 'password', 'f-new', 'minimal 8 karakter', 'new-password'));
+    const m2 = el('div', 'acc-msg');
+    const b2 = el('button', 'btn', 'Simpan password');
+    b2.type = 'submit';
+    sec2.appendChild(b2);
+    sec2.appendChild(m2);
+    sec2.onsubmit = async (e) => {
+      e.preventDefault();
+      const r = await api('/api/password', 'POST', { old: $('f-old').value, next: $('f-new').value });
+      if (!r.ok) return msg(m2, r.error || 'Gagal');
+      $('f-old').value = ''; $('f-new').value = '';
+      msg(m2, 'Password diganti', true);
+    };
+    accBody.appendChild(sec2);
+
+    const sec3 = el('div', 'acc-sec');
+    if (session && st) {
+      sec3.appendChild(el('p', 'muted small', 'Keluar akun hanya bisa dari beranda (keluar dari room dulu).'));
+    } else {
+      const out = el('button', 'btn', 'Keluar dari akun');
+      out.type = 'button';
+      out.onclick = async () => {
+        await api('/api/logout', 'POST', {});
+        user = null; paintUser(); accMode = 'login'; renderAcc();
+        toast('Kamu sudah keluar');
+      };
+      sec3.appendChild(out);
+    }
+    accBody.appendChild(sec3);
+  }
+
+  // potong persegi 128px lalu kompres sampai kecil (<= ~55 KB)
+  async function shrinkImage(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Pilih file PNG, JPEG, atau WebP');
+    if (file.size > 8 * 1024 * 1024) throw new Error('File terlalu besar (maks. 8 MB)');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Foto tidak bisa dibaca')); i.src = url; });
+      const S = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = S;
+      const g = c.getContext('2d');
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, S, S);
+      const toBlob = (type, q) => new Promise((res) => c.toBlob(res, type, q));
+      for (const [type, qs] of [['image/webp', [0.85, 0.7, 0.5]], ['image/jpeg', [0.85, 0.7, 0.5, 0.3]]]) {
+        for (const q of qs) {
+          const b = await toBlob(type, q);
+          if (!b || b.type !== type) break; // browser tidak mendukung format ini
+          if (b.size <= 55 * 1024) {
+            return await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error('Gagal membaca foto')); fr.readAsDataURL(b); });
+          }
+        }
+      }
+      throw new Error('Foto tidak bisa dikecilkan, coba foto lain');
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  $('btn-acc').onclick = () => { accMode = 'login'; renderAcc(); $('modal-acc').classList.remove('hidden'); if (user) refreshUser().then(() => !$('modal-acc').classList.contains('hidden') && renderAcc()); };
+  $('acc-close').onclick = () => $('modal-acc').classList.add('hidden');
+  $('modal-acc').addEventListener('click', (e) => { if (e.target === $('modal-acc')) $('modal-acc').classList.add('hidden'); });
+
+  // ---------- Peringkat ----------
+  let rankData = null;
+  let rankTab = 'benar';
+  let rankFetchedAt = 0;
+  async function loadRank(week) {
+    $('rank-body').textContent = '';
+    $('rank-body').appendChild(el('div', 'rank-empty', 'Memuat…'));
+    const r = await api('/api/rank' + (week ? '?week=' + encodeURIComponent(week) : ''));
+    if (!r.ok) {
+      $('rank-body').textContent = '';
+      $('rank-body').appendChild(el('div', 'rank-empty', r.error || 'Peringkat belum bisa dimuat. Coba lagi sebentar.'));
+      return;
+    }
+    rankData = r;
+    rankFetchedAt = Date.now();
+    paintRank();
+  }
+  function fmtWeek(id) {
+    const [y, m, d] = id.split('-').map(Number);
+    const a = new Date(Date.UTC(y, m - 1, d));
+    const b = new Date(Date.UTC(y, m - 1, d + 6));
+    const f = (x) => x.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return f(a) + ' - ' + f(b);
+  }
+  function paintRank() {
+    const r = rankData;
+    if (!r) return;
+    const sel = $('rank-week');
+    sel.textContent = '';
+    for (const w of r.weeks) {
+      const o = el('option', '', fmtWeek(w) + (w === r.weeks[0] && r.current ? ' (minggu ini)' : ''));
+      o.value = w;
+      sel.appendChild(o);
+    }
+    sel.value = r.week;
+    const left = r.endsAt - (Date.now() + offset);
+    $('rank-left').textContent = r.current
+      ? (left > 86400000 ? `Berakhir ${Math.ceil(left / 86400000)} hari lagi` : left > 0 ? 'Berakhir hari ini (00:00 WIB)' : '')
+      : 'Minggu lalu (sudah final)';
+    $('tab-benar').classList.toggle('selected', rankTab === 'benar');
+    $('tab-streak').classList.toggle('selected', rankTab === 'streak');
+    $('tab-benar').setAttribute('aria-selected', rankTab === 'benar');
+    $('tab-streak').setAttribute('aria-selected', rankTab === 'streak');
+    const list = rankTab === 'benar' ? r.benar : r.streak;
+    const body = $('rank-body');
+    body.textContent = '';
+    if (!list.length) body.appendChild(el('div', 'rank-empty', 'Belum ada data minggu ini. Main dulu dengan akun yang login!'));
+    list.forEach((x, i) => {
+      const row = el('div', 'rank-row' + (user && x.n.toLowerCase() === user.name.toLowerCase() ? ' me' : ''));
+      row.appendChild(el('span', 'no', i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1)));
+      row.appendChild(el('span', 'nm', x.n));
+      row.appendChild(el('span', 'val', String(x.s)));
+      body.appendChild(row);
+    });
+    const mine = $('rank-mine');
+    if (user && r.current) {
+      mine.textContent = `Kamu minggu ini: ${user.week.benar} jawaban benar · streak terbaik ${user.week.best}`;
+    } else if (!user) {
+      mine.textContent = 'Kamu main sebagai tamu, skormu tidak tercatat. Login lewat tombol 👤.';
+    } else mine.textContent = '';
+    $('rank-note').textContent = rankTab === 'benar'
+      ? 'Total jawaban benar dari semua game minggu ini (solo atau bareng).'
+      : 'Jawaban benar berturut-turut terbanyak (streak) sepanjang minggu ini. Salah atau kehabisan waktu mengulang dari 0.';
+  }
+  $('btn-rank').onclick = async () => {
+    $('modal-rank').classList.remove('hidden');
+    if (user) refreshUser().then(() => paintRank());
+    if (!rankData || Date.now() - rankFetchedAt > 20000) await loadRank();
+    else paintRank();
+  };
+  $('rank-close').onclick = () => $('modal-rank').classList.add('hidden');
+  $('modal-rank').addEventListener('click', (e) => { if (e.target === $('modal-rank')) $('modal-rank').classList.add('hidden'); });
+  $('rank-week').onchange = (e) => loadRank(e.target.value);
+  $('tab-benar').onclick = () => { rankTab = 'benar'; paintRank(); };
+  $('tab-streak').onclick = () => { rankTab = 'streak'; paintRank(); };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') for (const id of ['modal-rank', 'modal-acc', 'modal-confirm']) $(id).classList.add('hidden');
+  });
+
   // ---------- Mulai ----------
   showScreen('home');
+  refreshUser();
   if (session && session.code && session.token) {
     connect(() => send({ t: 'join', code: session.code, token: session.token }));
   } else {

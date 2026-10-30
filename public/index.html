@@ -13,6 +13,8 @@
 <header class="topbar">
   <div class="brand"><span class="logo">K</span><span class="brand-text">Tebak Kata <small>KBBI</small></span></div>
   <div class="top-actions">
+    <button class="icon-btn" id="btn-acc" aria-label="Akun" title="Akun"><span id="acc-ico">👤</span></button>
+    <button class="icon-btn" id="btn-rank" aria-label="Peringkat mingguan" title="Peringkat mingguan">🏆</button>
     <button class="icon-btn" id="btn-help" aria-label="Cara main" title="Cara main">?</button>
     <button class="icon-btn" id="btn-theme" aria-label="Ganti tema" title="Ganti tema">☾</button>
   </div>
@@ -29,6 +31,7 @@
         <span>Nickname</span>
         <input id="in-name" type="text" maxlength="14" autocomplete="off" placeholder="Misal: Aran">
       </label>
+      <p class="muted small acc-hint" id="acc-hint"></p>
       <div id="join-banner" class="banner hidden"></div>
 
       <div class="field">
@@ -124,6 +127,7 @@
         <div class="statusbar">
           <div class="round-tag" id="round-tag">Ronde 1/5</div>
           <div class="timer" id="timer">2:00</div>
+          <button class="btn sm danger hidden" id="btn-cancel" type="button">Batalkan game</button>
         </div>
         <div class="timebar"><div id="timebar-fill"></div></div>
 
@@ -160,6 +164,41 @@
     </div>
   </div>
 
+  <div id="modal-confirm" class="modal hidden">
+    <div class="modal-card narrow">
+      <h2 id="confirm-title">Batalkan game?</h2>
+      <p id="confirm-text" class="muted"></p>
+      <div class="modal-actions">
+        <button class="btn" id="confirm-no" type="button">Tidak, lanjutkan</button>
+        <button class="btn danger" id="confirm-yes" type="button">Ya, batalkan</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-rank" class="modal hidden">
+    <div class="modal-card wide">
+      <div class="modal-head"><h2>🏆 Peringkat mingguan</h2><button class="icon-btn" id="rank-close" aria-label="Tutup">✕</button></div>
+      <div class="rank-bar">
+        <select id="rank-week" aria-label="Pilih minggu"></select>
+        <span class="muted small" id="rank-left"></span>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab selected" id="tab-benar" role="tab" aria-selected="true" type="button">Jawaban benar</button>
+        <button class="tab" id="tab-streak" role="tab" aria-selected="false" type="button">Streak benar</button>
+      </div>
+      <div id="rank-mine" class="rank-mine"></div>
+      <div id="rank-body" class="rank-body"></div>
+      <p class="muted small" id="rank-note"></p>
+    </div>
+  </div>
+
+  <div id="modal-acc" class="modal hidden">
+    <div class="modal-card narrow">
+      <div class="modal-head"><h2 id="acc-title">Akun</h2><button class="icon-btn" id="acc-close" aria-label="Tutup">✕</button></div>
+      <div id="acc-body"></div>
+    </div>
+  </div>
+
   <div id="modal-help" class="modal hidden">
     <div class="modal-card">
       <h2>Cara main</h2>
@@ -171,6 +210,9 @@
         <li>Poin: <b>100</b> untuk menjawab benar + sampai <b>400</b> bonus kecepatan. Salah semua = 0 poin.</li>
         <li><b>Mode Skill:</b> tiap 3 ronde kamu dapat 1 skill baru (sekali pakai): 🔍 Intip, 🚫 Coret, ❄️ Bekukan, 🛡️ Perisai, ⚡ Skor Ganda.</li>
         <li>Tombol 🙂 di pojok kanan bawah untuk kirim stiker ke teman satu room.</li>
+        <li><b>Akun (👤):</b> daftar atau masuk supaya nama dan foto profilmu tetap sama setiap main. Tamu tetap bisa main, tapi tidak masuk peringkat.</li>
+        <li><b>Peringkat (🏆):</b> dihitung per minggu (Senin-Minggu, WIB) dari semua game: jumlah jawaban benar dan streak benar terbanyak.</li>
+        <li><b>Host</b> bisa menekan <b>Batalkan game</b> kalau salah setting. Game yang dibatalkan tidak dihitung ke peringkat.</li>
         <li>Pemain lain hanya terlihat warnanya saja, hurufnya rahasia.</li>
       </ul>
       <button class="btn primary" id="help-close">Mengerti</button>

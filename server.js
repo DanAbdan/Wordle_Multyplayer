@@ -60,9 +60,10 @@ console.log(
 const rid = (n) => crypto.randomBytes(n).toString('hex');
 
 // ---------- Penyimpanan stiker (Upstash Redis, atau memori kalau belum diisi) ----------
-const REDIS_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '');
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
-const USE_REDIS = !!(REDIS_URL && REDIS_TOKEN);
+const store = require('./store');
+const accounts = require('./accounts');
+const ranks = require('./ranks');
+const USE_REDIS = store.USE_REDIS;
 let stickers = new Map(); // id -> {id, mime, buf}
 let stickerOrder = [];
 let storageOk = !USE_REDIS;
@@ -76,20 +77,7 @@ const serial = (fn) => {
 };
 const httpErr = (status, msg) => Object.assign(new Error(msg), { status });
 
-async function redis(cmd) {
-  const r = await fetch(REDIS_URL, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + REDIS_TOKEN, 'Content-Type': 'application/json' },
-    body: JSON.stringify(cmd),
-    signal: AbortSignal.timeout(10000),
-  });
-  let j = {};
-  try {
-    j = await r.json();
-  } catch {}
-  if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
-  return j.result;
-}
+const redis = store.redis;
 
 async function loadStickers() {
   lastLoadTry = Date.now();
@@ -310,6 +298,11 @@ async function handleAdminApi(req, res, p) {
       storageErr,
       max: MAX_STICKERS,
       stickers: stickerList(),
+      commands: store.getCommandCount(),
+      usersReady: accounts.isReady(),
+      userCount: accounts.count(),
+      stableSecret: accounts.isStableSecret(),
+      week: ranks.weekId(),
     });
   }
 
@@ -367,6 +360,34 @@ async function handleAdminApi(req, res, p) {
     }
   }
 
+  // ----- kelola pengguna -----
+  if (p === '/admin/api/users' && req.method === 'GET') {
+    return json(res, 200, { ok: true, ready: accounts.isReady(), users: accounts.list() });
+  }
+  const um = /^\/admin\/api\/users\/([A-Za-z0-9_.-]{3,14})(?:\/(reset|avatar))?$/.exec(p);
+  if (um) {
+    const lower = um[1].toLowerCase();
+    try {
+      if (!accounts.info(lower)) return json(res, 404, { ok: false, error: 'Akun tidak ditemukan' });
+      if (um[2] === 'reset' && req.method === 'POST') {
+        const temp = await accounts.adminReset(lower);
+        return json(res, 200, { ok: true, temp });
+      }
+      if (um[2] === 'avatar' && req.method === 'DELETE') {
+        await accounts.deleteAvatar(lower);
+        return json(res, 200, { ok: true, users: accounts.list() });
+      }
+      if (!um[2] && req.method === 'DELETE') {
+        const name = accounts.nameOf(lower);
+        await accounts.deleteAccount(lower);
+        await ranks.removeUser(lower, name).catch((e) => console.error('hapus peringkat gagal', e.message));
+        return json(res, 200, { ok: true, users: accounts.list() });
+      }
+    } catch (e) {
+      return json(res, e.status || 500, { ok: false, error: e.status ? e.message : 'Gagal' });
+    }
+  }
+
   const del = /^\/admin\/api\/stickers\/([a-f0-9]{8})$/.exec(p);
   if (del && req.method === 'DELETE') {
     try {
@@ -379,6 +400,8 @@ async function handleAdminApi(req, res, p) {
 
   return json(res, 404, { ok: false, error: 'Tidak ditemukan' });
 }
+
+const userApi = require('./userapi').init({ json, readBody, getCookie, clientIp, isHttps, baseHeaders });
 
 const server = http.createServer(async (req, res) => {
   let p;
@@ -410,6 +433,7 @@ const server = http.createServer(async (req, res) => {
       );
       return res.end(req.method === 'HEAD' ? undefined : s.buf);
     }
+    if (await userApi.handle(req, res, p)) return;
     if (p.startsWith('/admin/api/')) return await handleAdminApi(req, res, p);
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405);
@@ -451,11 +475,13 @@ function resetRoundState(p) {
   p.frozenThisRound = false;
 }
 
-function newPlayer(name) {
+function newPlayer(name, lower) {
   const p = {
     id: rid(3),
     token: rid(16),
     name,
+    lower: lower || null, // username akun (huruf kecil); null = tamu, tidak masuk peringkat
+    rr: [], // hasil tiap ronde yang dimainkan di game ini (true = benar), untuk peringkat
     ws: null,
     connected: false,
     score: 0,
@@ -538,6 +564,8 @@ function snapshot(room, viewerId) {
       name: p.name,
       score: p.score,
       connected: p.connected,
+      acc: p.lower ? 1 : 0,
+      av: p.lower ? accounts.avOf(p.lower) : 0,
       host: p.id === room.hostId,
       done: p.done,
       solved: p.solved,
@@ -575,8 +603,19 @@ function reassignHost(room) {
   if (next) room.hostId = next.id;
 }
 
+// catat hasil pemain (yang login) ke peringkat; aman dipanggil berulang (daftar ronde dikosongkan setelah dicatat)
+function finalizePlayers(list) {
+  const batch = [];
+  for (const p of list) {
+    if (p.lower && p.rr.length) batch.push({ lower: p.lower, name: p.name, rounds: p.rr });
+    p.rr = [];
+  }
+  if (batch.length) ranks.recordGame(batch).catch((e) => console.error('rank', e.message));
+}
+
 function deleteRoom(room) {
   clearTimeout(room.timer);
+  finalizePlayers(room.players.values());
   for (const p of room.players.values()) {
     clearTimeout(p.removeTimer);
     if (p.ws) {
@@ -591,6 +630,7 @@ function removePlayer(room, id) {
   const p = room.players.get(id);
   if (!p) return;
   clearTimeout(p.removeTimer);
+  finalizePlayers([p]);
   room.players.delete(id);
   if (room.players.size === 0) return deleteRoom(room);
   if (room.hostId === id) reassignHost(room);
@@ -647,6 +687,7 @@ function endRound(room) {
   if (room.phase !== 'playing') return;
   room.phase = 'roundEnd';
   room.nextAt = Date.now() + RESULT_MS;
+  for (const p of room.players.values()) if (p.lower && !p.late) p.rr.push(!!p.solved);
   // Skor Ganda: gagal = kena penalti
   for (const p of room.players.values()) {
     if (p.ganda && !p.solved) {
@@ -665,6 +706,7 @@ function advance(room) {
     clearTimeout(room.timer);
     room.phase = 'final';
     room.nextAt = null;
+    finalizePlayers(room.players.values());
     broadcast(room);
   } else {
     startCountdown(room);
@@ -692,6 +734,7 @@ function backToLobby(room) {
     p.score = 0;
     p.solvedCount = 0;
     p.skill = null;
+    p.rr = [];
     resetRoundState(p);
   }
   if (!room.players.has(room.hostId)) reassignHost(room);
@@ -794,9 +837,19 @@ function detach(ws) {
   broadcast(room);
 }
 
-function doCreate(ws, m) {
+// nama pemain: pakai nama akun kalau login; tamu tidak boleh memakai nama milik akun terdaftar
+function resolveName(ws, m) {
+  if (ws.user) return { name: ws.user.name, lower: ws.user.lower };
   const name = cleanName(m.name);
-  if (name.length < 2) return sendErr(ws, 'Nickname minimal 2 huruf', 'name');
+  if (name.length < 2) return { err: 'Nickname minimal 2 huruf' };
+  if (accounts.isReserved(name)) return { err: 'Nama itu milik akun terdaftar. Login dulu atau pakai nama lain.' };
+  return { name, lower: null };
+}
+
+function doCreate(ws, m) {
+  const who = resolveName(ws, m);
+  if (who.err) return sendErr(ws, who.err, 'name');
+  const name = who.name;
   if (rooms.size >= MAX_ROOMS) return sendErr(ws, 'Server sedang penuh, coba lagi nanti', 'full');
   const code = genCode();
   if (!code) return sendErr(ws, 'Gagal membuat room', 'full');
@@ -817,7 +870,7 @@ function doCreate(ws, m) {
     nextAt: null,
     lastActive: Date.now(),
   };
-  const player = newPlayer(name);
+  const player = newPlayer(name, who.lower);
   room.players.set(player.id, player);
   room.hostId = player.id;
   rooms.set(code, room);
@@ -837,18 +890,21 @@ function doJoin(ws, m) {
     }
   }
 
-  const name = cleanName(m.name);
-  if (name.length < 2) return sendErr(ws, 'Nickname minimal 2 huruf', 'name');
+  const who = resolveName(ws, m);
+  if (who.err) return sendErr(ws, who.err, 'name');
+  const name = who.name;
   const same = [...room.players.values()].find((p) => p.name.toLowerCase() === name.toLowerCase());
   if (same) {
-    if (same.connected) return sendErr(ws, 'Nickname sudah dipakai di room ini', 'name');
+    const sameAccount = !!who.lower && same.lower === who.lower; // akun yang sama (mis. buka dua tab): ambil alih
+    if (same.connected && !sameAccount) return sendErr(ws, 'Nickname sudah dipakai di room ini', 'name');
+    if (!same.connected && same.lower !== who.lower) return sendErr(ws, 'Nickname sudah dipakai di room ini', 'name');
     same.token = rid(16);
     detach(ws);
     return attach(ws, room, same);
   }
   if (room.players.size >= MAX_PLAYERS) return sendErr(ws, `Room penuh (${MAX_PLAYERS}/${MAX_PLAYERS})`, 'full');
   detach(ws);
-  const player = newPlayer(name);
+  const player = newPlayer(name, who.lower);
   if (room.phase !== 'lobby' && room.settings.mode === 'skill') giveSkill(player);
   if (room.phase === 'playing') {
     player.done = true;
@@ -889,8 +945,17 @@ function handle(ws, m) {
         p.score = 0;
         p.solvedCount = 0;
         p.skill = null;
+        p.rr = [];
       }
       return startCountdown(room);
+    }
+    case 'cancel': {
+      // host membatalkan game yang sedang berjalan (salah setting): kembali ke lobi, tidak ada yang dicatat ke peringkat
+      if (!isHost || !['countdown', 'playing', 'roundEnd'].includes(room.phase)) return;
+      for (const p of room.players.values()) p.rr = [];
+      backToLobby(room);
+      sendAll(room, { t: 'note', msg: 'Game dibatalkan oleh host. Hasilnya tidak dihitung.' });
+      return broadcast(room);
     }
     case 'guess': {
       if (room.phase !== 'playing' || player.done || player.late) return;
@@ -970,9 +1035,32 @@ function handle(ws, m) {
 }
 
 const wss = new WebSocketServer({ server, maxPayload: 4096 });
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.ctx = null;
+  ws.user = null;
+  // baca sesi login dari cookie (hanya kalau Origin sama dengan situs ini); pesan yang datang sebelum selesai ditunda
+  const origin = req.headers.origin;
+  let sameOrigin = true;
+  if (origin) {
+    try {
+      sameOrigin = new URL(origin).host === req.headers.host;
+    } catch {
+      sameOrigin = false;
+    }
+  }
+  const cookie = getCookie(req, userApi.COOKIE);
+  if (cookie && sameOrigin) {
+    ws.ready = accounts
+      .verifyToken(cookie)
+      .then((u) => {
+        ws.user = u;
+      })
+      .catch(() => {})
+      .finally(() => {
+        ws.ready = null;
+      });
+  } else ws.ready = null;
   ws.bucket = { n: 0, t: Date.now() };
   ws.on('pong', () => (ws.isAlive = true));
   ws.on('message', (raw) => {
@@ -986,11 +1074,15 @@ wss.on('connection', (ws) => {
       return;
     }
     if (!m || typeof m.t !== 'string') return;
-    try {
-      handle(ws, m);
-    } catch (e) {
-      console.error(e);
-    }
+    const run = () => {
+      try {
+        handle(ws, m);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    if (ws.ready) ws.ready.then(run);
+    else run();
   });
   ws.on('close', () => detach(ws));
   ws.on('error', () => {});
@@ -1015,6 +1107,7 @@ setInterval(() => {
   }
 }, 60000);
 
+accounts.load();
 loadStickers().finally(() => {
   server.listen(PORT, '0.0.0.0', () => console.log(`Server jalan di http://localhost:${PORT}`));
 });
