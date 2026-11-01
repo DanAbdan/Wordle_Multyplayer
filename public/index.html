@@ -43,6 +43,12 @@
           <button type="button" class="mode-card" data-mode="skill" role="radio" aria-checked="false">
             <b>Skill</b><small>Ada skill: Intip, Bekukan, dll</small>
           </button>
+          <button type="button" class="mode-card" data-mode="duel" role="radio" aria-checked="false">
+            <b>Duel</b><small>2 pemain, adu cepat, taruhan poin</small>
+          </button>
+          <button type="button" class="mode-card" data-mode="team" role="radio" aria-checked="false">
+            <b>Team</b><small>Tim 2 orang, bergantian per baris</small>
+          </button>
         </div>
       </div>
       <button class="btn primary" id="btn-create">Buat room baru</button>
@@ -52,6 +58,7 @@
         <button class="btn" id="btn-join">Gabung</button>
       </div>
       <p class="err" id="home-err"></p>
+      <p class="muted small" style="text-align:center;margin-top:14px"><a href="/tentang">Tentang &amp; Privasi</a></p>
     </div>
   </section>
 
@@ -78,6 +85,8 @@
             <select id="mode-sel">
               <option value="normal">Normal</option>
               <option value="skill">Skill</option>
+              <option value="duel">Duel (2 pemain)</option>
+              <option value="team">Team (tim 2 orang)</option>
             </select>
           </label>
           <label class="field">
@@ -102,6 +111,22 @@
           </label>
         </div>
         <p class="muted small" id="settings-note"></p>
+
+        <div id="duel-box" class="mode-box hidden">
+          <h3>Taruhan Duel</h3>
+          <label class="field">
+            <span>Taruhan poin (dari saldo kedua pemain)</span>
+            <select id="stake-sel"></select>
+          </label>
+          <p class="muted small" id="duel-info"></p>
+          <button class="btn" id="btn-ready" type="button">Siap</button>
+        </div>
+
+        <div id="team-box" class="mode-box hidden">
+          <h3>Tim</h3>
+          <p class="muted small">Tiap tim 2 orang. Satu papan berdua: baris 1 pemain pertama, baris 2 pemain kedua, bergantian sampai 6 baris. Jumlah pemain harus genap.</p>
+          <button class="btn" id="btn-shuffle" type="button">🔀 Acak tim</button>
+        </div>
 
         <div id="skill-info" class="skill-info hidden">
           <h3>Skill (ganti setiap 3 ronde)</h3>
@@ -130,6 +155,7 @@
           <button class="btn sm danger hidden" id="btn-cancel" type="button">Batalkan game</button>
         </div>
         <div class="timebar"><div id="timebar-fill"></div></div>
+        <div id="turnbar" class="turnbar hidden"></div>
 
         <div id="skillbar" class="skillbar hidden">
           <div class="sk-ico" id="sk-ico" aria-hidden="true"></div>
@@ -183,8 +209,8 @@
         <span class="muted small" id="rank-left"></span>
       </div>
       <div class="tabs" role="tablist">
-        <button class="tab selected" id="tab-benar" role="tab" aria-selected="true" type="button">Jawaban benar</button>
-        <button class="tab" id="tab-streak" role="tab" aria-selected="false" type="button">Streak benar</button>
+        <button class="tab selected" id="tab-poin" role="tab" aria-selected="true" type="button">Poin</button>
+        <button class="tab" id="tab-benar" role="tab" aria-selected="false" type="button">Jawaban benar</button>
       </div>
       <div id="rank-mine" class="rank-mine"></div>
       <div id="rank-body" class="rank-body"></div>
@@ -208,10 +234,12 @@
         <li><span class="tile mini pres">B</span> <b>Kuning + tanda ●</b>: huruf ada di kata, tapi posisinya salah.</li>
         <li><span class="tile mini abs">C</span> <b>Abu-abu gelap</b>: huruf tidak ada di kata.</li>
         <li>Poin: <b>100</b> untuk menjawab benar + sampai <b>400</b> bonus kecepatan. Salah semua = 0 poin.</li>
+        <li><b>Mode Duel:</b> hanya 2 pemain. Siapa yang paling cepat menjawab benar menang ronde itu. Kalau pakai taruhan, pemenang ronde mengambil sebagian poin lawan (taruhan dibagi jumlah ronde). Taruhan hanya bisa kalau keduanya login dan punya poin.</li>
+        <li><b>Mode Team:</b> tim 2 orang memakai satu papan. Bergantian per baris: baris 1 pemain pertama, baris 2 pemain kedua, dan seterusnya. Kalau gilirannya macet 45 detik, barisnya hangus.</li>
         <li><b>Mode Skill:</b> tiap 3 ronde kamu dapat 1 skill baru (sekali pakai): 🔍 Intip, 🚫 Coret, ❄️ Bekukan, 🛡️ Perisai, ⚡ Skor Ganda.</li>
         <li>Tombol 🙂 di pojok kanan bawah untuk kirim stiker ke teman satu room.</li>
         <li><b>Akun (👤):</b> daftar atau masuk supaya nama dan foto profilmu tetap sama setiap main. Tamu tetap bisa main, tapi tidak masuk peringkat.</li>
-        <li><b>Peringkat (🏆):</b> dihitung per minggu (Senin-Minggu, WIB) dari semua game: jumlah jawaban benar dan streak benar terbanyak.</li>
+        <li><b>Peringkat (🏆):</b> dihitung per periode (mingguan atau bulanan, diatur admin) dari semua game: peringkat <b>Poin</b> dan peringkat <b>Jawaban benar</b>. Poin akunmu tersimpan dan tampil di profil.</li>
         <li><b>Host</b> bisa menekan <b>Batalkan game</b> kalau salah setting. Game yang dibatalkan tidak dihitung ke peringkat.</li>
         <li>Pemain lain hanya terlihat warnanya saja, hurufnya rahasia.</li>
       </ul>

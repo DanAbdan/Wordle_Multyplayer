@@ -69,7 +69,7 @@ function init({ json, readBody, getCookie, clientIp, isHttps, baseHeaders }) {
 
   async function meView(user) {
     const w = await ranks.mine(user.lower);
-    return { name: user.name, av: accounts.avOf(user.lower), week: w };
+    return { name: user.name, av: accounts.avOf(user.lower), poin: w.poin, benar: w.benar, period: w.period, endsAt: w.endsAt };
   }
 
   // mengembalikan true kalau rute ditangani

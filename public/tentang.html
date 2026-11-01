@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4d8b49">
+<title>Tentang &amp; Privasi - Tebak Kata KBBI</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .doc { max-width: 680px; margin: 0 auto; padding: 16px; }
+  .doc h1 { font-size: 24px; margin: 8px 0 4px; }
+  .doc h2 { font-size: 17px; margin: 22px 0 6px; }
+  .doc p, .doc li { line-height: 1.6; font-size: 15px; }
+  .doc ul { padding-left: 20px; margin: 6px 0; }
+  .doc table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+  .doc th, .doc td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .doc a { color: var(--primary); }
+  .doc .note { padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">K</span><span class="brand-text">Tebak Kata <small>KBBI</small></span></div>
+  <div class="top-actions"><a class="btn sm" href="/">← Kembali ke game</a></div>
+</header>
+<main class="doc">
+  <h1>Tentang &amp; Privasi</h1>
+  <p class="muted small">Terakhir diperbarui: 1 November 2026</p>
+
+  <h2>Tentang game ini</h2>
+  <p>Tebak Kata KBBI adalah game tebak kata 5 huruf bareng teman, dibuat sebagai proyek belajar dan hiburan. Gratis, tanpa iklan, dan bukan produk komersial.</p>
+  <p class="note">Game ini <b>tidak resmi</b> dan tidak berafiliasi dengan Badan Bahasa, Kemendikdasmen, atau pengelola KBBI. Daftar kata disusun dari kosakata KBBI dan bisa saja ada kata yang kurang atau keliru. Bukan rujukan kebahasaan resmi.</p>
+  <p>Karena berjalan di layanan hosting gratis, game bisa sesekali lambat, tidur saat sepi, atau tidak tersedia tanpa pemberitahuan. Room yang sedang berjalan bisa hilang kalau server restart.</p>
+
+  <h2>Data yang kami simpan</h2>
+  <p>Kamu boleh main sebagai tamu (hanya nickname, tanpa akun). Data berikut hanya ada kalau kamu membuat akun:</p>
+  <table>
+    <tr><th>Data</th><th>Untuk apa</th><th>Disimpan di</th></tr>
+    <tr><td>Nama akun</td><td>Identitas di game dan peringkat (tampil ke pemain lain)</td><td>Upstash Redis</td></tr>
+    <tr><td>Password</td><td>Login. Disimpan hanya dalam bentuk hash (scrypt), tidak bisa dibaca siapa pun, termasuk admin</td><td>Upstash Redis</td></tr>
+    <tr><td>Foto profil (opsional)</td><td>Ditampilkan di game ke pemain satu room dan di peringkat</td><td>Upstash Redis</td></tr>
+    <tr><td>Poin dan jumlah jawaban benar</td><td>Saldo poin, peringkat, taruhan Duel; direset tiap periode (mingguan/bulanan)</td><td>Upstash Redis</td></tr>
+    <tr><td>Cookie login</td><td>Menjaga kamu tetap masuk selama 30 hari. Tidak dipakai untuk melacak atau iklan</td><td>Browser kamu</td></tr>
+    <tr><td>Pengaturan tampilan (tema, mode warna, nickname terakhir)</td><td>Kenyamanan saja</td><td>Browser kamu (localStorage)</td></tr>
+  </table>
+  <p>Isi room (tebakan, skor ronde, stiker yang dikirim) hanya disimpan sementara di memori server selama room aktif dan hilang saat room bubar atau server restart. Chat bebas tidak ada.</p>
+
+  <h2>Yang tidak kami lakukan</h2>
+  <ul>
+    <li>Tidak meminta email, nomor telepon, atau data pribadi lain.</li>
+    <li>Tidak memasang analitik, iklan, atau pelacak pihak ketiga.</li>
+    <li>Tidak menjual atau membagikan datamu.</li>
+  </ul>
+
+  <h2>Pihak ketiga yang dipakai</h2>
+  <ul>
+    <li><b>Render</b> menjalankan server game.</li>
+    <li><b>Upstash</b> menyimpan data akun dan peringkat.</li>
+  </ul>
+  <p>Keduanya memproses data sebagai penyedia infrastruktur, dan alamat IP kamu bisa tercatat di log teknis mereka seperti pada layanan web pada umumnya.</p>
+
+  <h2>Tips keamanan</h2>
+  <ul>
+    <li>Pakai password yang <b>tidak sama</b> dengan akun lain (email, medsos, bank).</li>
+    <li>Pilih foto profil yang aman ditampilkan ke teman-temanmu. Jangan unggah foto orang lain tanpa izin.</li>
+    <li>Nama akun dan foto terlihat pemain lain, jadi jangan memakai nama lengkap kalau tidak mau.</li>
+  </ul>
+
+  <h2>Hak kamu: lihat, ubah, hapus</h2>
+  <ul>
+    <li>Kamu bisa mengganti password dan menghapus foto sendiri lewat tombol 👤 di game.</li>
+    <li>Untuk <b>menghapus akun beserta semua datanya</b> (nama, foto, poin, peringkat), atau reset password yang lupa, hubungi admin di bawah. Penghapusan dilakukan admin dan bersifat permanen.</li>
+    <li>Data tiap pemain hanya sebatas yang tertulis di tabel di atas.</li>
+  </ul>
+
+  <h2>Aturan main</h2>
+  <ul>
+    <li>Jangan memakai nickname, nama akun, atau foto yang menyinggung, berisi SARA, pornografi, atau menyamar sebagai orang lain.</li>
+    <li>Jangan mencoba mengganggu server atau akun pemain lain.</li>
+    <li>Admin berhak menghapus akun, foto, atau stiker yang melanggar.</li>
+  </ul>
+
+  <h2>Anak di bawah umur</h2>
+  <p>Game ini ditujukan untuk umum dan tidak meminta data pribadi. Anak di bawah umur sebaiknya bermain dengan sepengetahuan orang tua atau wali.</p>
+
+  <h2>Perubahan kebijakan</h2>
+  <p>Halaman ini bisa diperbarui sewaktu-waktu, tanggal pembaruan ada di atas. Kalau ada perubahan besar soal data, kami akan memberi tahu di halaman utama game.</p>
+
+  <h2>Kontak admin</h2>
+  <p id="contact">Hubungi admin lewat pemberi link game ini (misalnya melalui grup atau chat tempat kamu menerima link).</p>
+</main>
+<script src="/tentang.js"></script>
+</body>
+</html>

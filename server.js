@@ -9,6 +9,9 @@ const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 3000;
 const MAX_PLAYERS = 24;
+const DUEL_PLAYERS = 2;
+const TEAM_TURN_MS = Number(process.env.TEAM_TURN_MS) || 45000; // batas waktu satu giliran di mode Team
+const MODES = ['normal', 'skill', 'duel', 'team'];
 const MAX_GUESSES = 6;
 const COUNTDOWN_MS = 4000;
 const RESULT_MS = 12000;
@@ -63,6 +66,7 @@ const rid = (n) => crypto.randomBytes(n).toString('hex');
 const store = require('./store');
 const accounts = require('./accounts');
 const ranks = require('./ranks');
+const appSettings = require('./settings');
 const USE_REDIS = store.USE_REDIS;
 let stickers = new Map(); // id -> {id, mime, buf}
 let stickerOrder = [];
@@ -229,7 +233,7 @@ const assets = new Map();
 })(PUBLIC, '/');
 
 // beri versi pada alamat CSS/JS di halaman HTML (?v=hash), supaya browser tidak memakai file lama yang tersimpan di cache
-for (const page of ['/index.html', '/admin.html']) {
+for (const page of ['/index.html', '/admin.html', '/tentang.html']) {
   const a = assets.get(page);
   if (!a) continue;
   let html = a.buf.toString('utf8');
@@ -316,7 +320,10 @@ async function handleAdminApi(req, res, p) {
       usersReady: accounts.isReady(),
       userCount: accounts.count(),
       stableSecret: accounts.isStableSecret(),
-      week: ranks.weekId(),
+      period: appSettings.get().period,
+      stickerSize: appSettings.get().stickerSize,
+      periodId: ranks.periodId(),
+      limits: appSettings.LIMITS,
     });
   }
 
@@ -371,6 +378,27 @@ async function handleAdminApi(req, res, p) {
       return json(res, 200, { ok: true, id, stickers: stickerList() });
     } catch (e) {
       return json(res, e.status || 500, { ok: false, error: e.status ? e.message : 'Gagal menyimpan' });
+    }
+  }
+
+  if (p === '/admin/api/settings' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req, 1024));
+    } catch (e) {
+      return json(res, e.status || 400, { ok: false, error: 'Permintaan tidak valid' });
+    }
+    try {
+      const patch = {};
+      if (body.period !== undefined) {
+        if (body.period !== 'weekly' && body.period !== 'monthly') return json(res, 400, { ok: false, error: 'Periode harus mingguan atau bulanan' });
+        patch.period = body.period;
+      }
+      if (body.stickerSize !== undefined) patch.stickerSize = body.stickerSize;
+      const next = await appSettings.update(patch);
+      return json(res, 200, { ok: true, period: next.period, stickerSize: next.stickerSize, periodId: ranks.periodId() });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: 'Gagal menyimpan pengaturan: ' + e.message });
     }
   }
 
@@ -432,7 +460,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/stickers' && req.method === 'GET') {
       if (!storageOk && Date.now() - lastLoadTry > 20000) await loadStickers();
-      return json(res, 200, { stickers: stickerList() }, { 'Cache-Control': 'no-cache' });
+      return json(res, 200, { stickers: stickerList(), size: appSettings.get().stickerSize }, { 'Cache-Control': 'no-cache' });
     }
     const sm = /^\/s\/([a-f0-9]{8})$/.exec(p);
     if (sm && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -455,6 +483,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/admin' || p === '/admin/') p = '/admin.html';
     if (p === '/') p = '/index.html';
+    if (p === '/tentang' || p === '/tentang/') p = '/tentang.html';
     return serveAsset(req, res, p);
   } catch (e) {
     console.error('http error', e);
@@ -495,7 +524,12 @@ function newPlayer(name, lower) {
     token: rid(16),
     name,
     lower: lower || null, // username akun (huruf kecil); null = tamu, tidak masuk peringkat
-    rr: [], // hasil tiap ronde yang dimainkan di game ini (true = benar), untuk peringkat
+    fin: false, // hasil game ini sudah dicatat ke peringkat
+    bal: null, // saldo poin periode ini (hanya akun login)
+    ready: false, // Duel: lawan sudah menekan Siap
+    tm: 0, // nomor tim (mode Team)
+    ti: 0, // urutan di dalam tim (0 atau 1)
+    team: null,
     ws: null,
     connected: false,
     score: 0,
@@ -567,7 +601,8 @@ function snapshot(room, viewerId) {
     hostId: room.hostId,
     settings: room.settings,
     round: room.round,
-    maxPlayers: MAX_PLAYERS,
+    maxPlayers: capOf(room),
+    duel: room.settings.mode === 'duel' && room.duel ? { stake: room.duel.stake, per: room.duel.per, net: room.duel.net, last: room.duel.last } : undefined,
     skillBlock: SKILL_BLOCK,
     countdownEndsAt: room.countdownEndsAt,
     roundEndsAt: room.roundEndsAt,
@@ -580,6 +615,11 @@ function snapshot(room, viewerId) {
       connected: p.connected,
       acc: p.lower ? 1 : 0,
       av: p.lower ? accounts.avOf(p.lower) : 0,
+      bal: room.settings.mode === 'duel' ? p.bal : undefined,
+      rdy: room.settings.mode === 'duel' ? p.ready : undefined,
+      tm: room.settings.mode === 'team' ? p.tm : undefined,
+      ti: room.settings.mode === 'team' && p.team ? p.ti : undefined,
+      tu: room.settings.mode === 'team' && p.team && room.phase === 'playing' ? p.team.turnEndsAt : undefined,
       host: p.id === room.hostId,
       done: p.done,
       solved: p.solved,
@@ -617,19 +657,79 @@ function reassignHost(room) {
   if (next) room.hostId = next.id;
 }
 
-// catat hasil pemain (yang login) ke peringkat; aman dipanggil berulang (daftar ronde dikosongkan setelah dicatat)
-function finalizePlayers(list) {
-  const batch = [];
-  for (const p of list) {
-    if (p.lower && p.rr.length) batch.push({ lower: p.lower, name: p.name, rounds: p.rr });
-    p.rr = [];
+const capOf = (room) => (room.settings.mode === 'duel' ? DUEL_PLAYERS : MAX_PLAYERS);
+
+// hasil Duel: siapa yang menang taruhan dan berapa. forfeitId = pemain yang keluar di tengah game (kalah semua sisa taruhan)
+function duelResult(room, forfeitId) {
+  const d = room.duel;
+  if (room.settings.mode !== 'duel' || !d || d.settled || !(d.stake > 0)) return null;
+  const ps = d.ids.map((id) => room.players.get(id));
+  if (ps.length !== 2 || !ps[0] || !ps[1] || !ps[0].lower || !ps[1].lower) return null;
+  const net = { [ps[0].id]: d.net[ps[0].id] || 0, [ps[1].id]: d.net[ps[1].id] || 0 };
+  if (forfeitId && net[forfeitId] !== undefined) {
+    const other = ps.find((p) => p.id !== forfeitId);
+    const rem = d.stake - (d.lost[forfeitId] || 0);
+    net[forfeitId] -= rem;
+    net[other.id] += rem;
   }
-  if (batch.length) ranks.recordGame(batch).catch((e) => console.error('rank', e.message));
+  const win = net[ps[0].id] > net[ps[1].id] ? ps[0] : ps[1];
+  const lose = win === ps[0] ? ps[1] : ps[0];
+  const amount = net[win.id];
+  if (!(amount > 0)) return null;
+  return { winner: win.lower, loser: lose.lower, amount };
+}
+
+function refreshBal(room, players) {
+  for (const p of players) {
+    if (!p.lower) continue;
+    ranks
+      .mine(p.lower)
+      .then((r) => {
+        p.bal = r.poin;
+        if (rooms.get(room.code) === room) {
+          normalizeDuel(room);
+          broadcast(room);
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+// catat poin + jawaban benar pemain yang login ke peringkat; aman dipanggil berulang (p.fin mencegah hitung ganda)
+function finalizePlayers(list, room, forfeitId) {
+  const arr = [...list];
+  const entries = [];
+  const done = [];
+  for (const p of arr) {
+    if (p.fin) continue;
+    p.fin = true;
+    if (p.lower && (p.score > 0 || p.solvedCount > 0)) {
+      entries.push({ lower: p.lower, name: p.name, pts: p.score, benar: p.solvedCount });
+      done.push(p);
+    }
+  }
+  const duel = room ? duelResult(room, forfeitId) : null;
+  if (duel) {
+    room.duel.settled = true;
+    for (const lw of [duel.winner, duel.loser]) {
+      if (!entries.some((e) => e.lower === lw)) {
+        const q = [...room.players.values()].find((x) => x.lower === lw);
+        entries.push({ lower: lw, name: q.name, pts: 0, benar: 0 });
+        done.push(q);
+      }
+    }
+  }
+  if (!entries.length) return;
+  ranks
+    .recordGame(entries, duel)
+    .then(() => room && refreshBal(room, done))
+    .catch((e) => console.error('rank', e.message));
 }
 
 function deleteRoom(room) {
   clearTimeout(room.timer);
-  finalizePlayers(room.players.values());
+  clearTeamTimers(room);
+  finalizePlayers(room.players.values(), room);
   for (const p of room.players.values()) {
     clearTimeout(p.removeTimer);
     if (p.ws) {
@@ -644,7 +744,8 @@ function removePlayer(room, id) {
   const p = room.players.get(id);
   if (!p) return;
   clearTimeout(p.removeTimer);
-  finalizePlayers([p]);
+  const midGame = ['countdown', 'playing', 'roundEnd'].includes(room.phase);
+  finalizePlayers([p], room, room.settings.mode === 'duel' && midGame ? id : null);
   room.players.delete(id);
   if (room.players.size === 0) return deleteRoom(room);
   if (room.hostId === id) reassignHost(room);
@@ -671,6 +772,157 @@ function giveSkill(p) {
   p.skill = { id: pool[crypto.randomInt(pool.length)], used: false };
 }
 
+// ---------- Mode Team: tim 2 orang, bergantian per baris ----------
+const teamMembers = (room, team) => team.members.map((id) => room.players.get(id)).filter(Boolean);
+
+// siapa yang boleh menebak baris berikutnya: urutan bergantian; kalau pemilik giliran tidak ada/putus, rekannya
+function turnOwner(room, team) {
+  const mem = team.members.map((id) => room.players.get(id));
+  const idx = team.guesses.length % 2;
+  const first = mem[idx];
+  if (first && first.connected) return first.id;
+  const second = mem[1 - idx];
+  if (second && second.connected) return second.id;
+  return null;
+}
+
+function clearTeamTimers(room) {
+  if (!room.teams) return;
+  for (const t of room.teams) {
+    clearTimeout(t.turnTimer);
+    t.turnTimer = null;
+    t.turnEndsAt = 0;
+  }
+}
+
+function scheduleTurn(room, team) {
+  clearTimeout(team.turnTimer);
+  team.turnTimer = null;
+  team.turnEndsAt = 0;
+  if (room.phase !== 'playing') return;
+  const mem = teamMembers(room, team);
+  if (!mem.length || mem[0].done || !turnOwner(room, team)) return;
+  team.turnEndsAt = Date.now() + TEAM_TURN_MS;
+  team.turnTimer = setTimeout(() => {
+    try {
+      skipTurn(room, team);
+    } catch (e) {
+      console.error(e);
+    }
+  }, TEAM_TURN_MS);
+}
+
+// giliran habis: barisnya hangus (kosong, tetap terhitung satu dari 6 baris), giliran pindah ke rekan
+function skipTurn(room, team) {
+  team.turnTimer = null;
+  if (room.phase !== 'playing') return;
+  const mem = teamMembers(room, team);
+  if (!mem.length || mem[0].done) return;
+  const who = room.players.get(turnOwner(room, team)) || mem[0];
+  team.guesses.push({ word: '     ', pattern: '00000', skip: true });
+  if (team.guesses.length >= MAX_GUESSES) for (const q of mem) q.done = true;
+  scheduleTurn(room, team);
+  const d = {
+    t: 'pd', id: who.id, row: '00000', n: team.guesses.length, done: who.done, solved: false,
+    score: who.score, rp: who.roundPoints, sm: who.solvedMs, sc: who.solvedCount, skip: 1, tu: team.turnEndsAt,
+  };
+  const full = Object.assign({ w: '     ' }, d);
+  for (const q of room.players.values()) send(q.ws, q.team === team ? full : d);
+  checkRoundDone(room);
+}
+
+function assignTeam(room, p) {
+  const cnt = new Map();
+  for (const q of room.players.values()) if (q !== p && q.tm) cnt.set(q.tm, (cnt.get(q.tm) || 0) + 1);
+  let n = 1;
+  while ((cnt.get(n) || 0) >= 2) n++;
+  p.tm = n;
+}
+
+// ---------- Mode Duel ----------
+function duelCap(room) {
+  const ps = [...room.players.values()];
+  if (!ps.length) return 0;
+  return Math.min(...ps.map((p) => (p.lower ? Math.max(0, p.bal || 0) : 0)));
+}
+// taruhan tidak boleh melebihi saldo terkecil; kalau berubah, "Siap" dibatalkan
+function normalizeDuel(room) {
+  if (room.settings.mode !== 'duel' || room.phase !== 'lobby') return;
+  const cap = duelCap(room);
+  if (room.settings.stake > cap) {
+    room.settings.stake = cap;
+    for (const p of room.players.values()) p.ready = false;
+  }
+}
+function loadBal(room, p) {
+  if (!p.lower) return;
+  ranks
+    .mine(p.lower)
+    .then((r) => {
+      p.bal = r.poin;
+      if (rooms.get(room.code) === room) {
+        normalizeDuel(room);
+        broadcast(room);
+      }
+    })
+    .catch(() => {});
+}
+
+function startError(room) {
+  const ps = [...room.players.values()];
+  const mode = room.settings.mode;
+  if (mode === 'duel') {
+    if (ps.length !== 2) return 'Duel butuh tepat 2 pemain';
+    if (room.settings.stake > 0) {
+      if (!ps.every((p) => p.lower)) return 'Taruhan hanya bisa kalau kedua pemain login';
+      const other = ps.find((p) => p.id !== room.hostId);
+      if (!other || !other.ready) return 'Menunggu lawan menekan Siap';
+    }
+  } else if (mode === 'team') {
+    if (ps.length < 2 || ps.length % 2) return 'Mode Team butuh jumlah pemain genap (2, 4, 6, ...)';
+    const cnt = new Map();
+    for (const p of ps) cnt.set(p.tm, (cnt.get(p.tm) || 0) + 1);
+    if ([...cnt.values()].some((n) => n !== 2)) return 'Tiap tim harus berisi tepat 2 pemain. Atur tim di lobi atau tekan Acak tim.';
+  }
+  return null;
+}
+
+function beginGame(room) {
+  room.round = 0;
+  for (const p of room.players.values()) {
+    p.score = 0;
+    p.solvedCount = 0;
+    p.skill = null;
+    p.fin = false;
+    p.ready = false;
+  }
+  room.duel = null;
+  room.teams = null;
+  if (room.settings.mode === 'duel') {
+    const stake = room.settings.stake > 0 && room.players.size === 2 ? room.settings.stake : 0;
+    room.duel = {
+      stake, per: stake > 0 ? Math.max(1, Math.ceil(stake / room.settings.rounds)) : 0,
+      net: {}, lost: {}, last: null, settled: false, ids: [...room.players.keys()],
+    };
+  } else if (room.settings.mode === 'team') {
+    const by = new Map();
+    for (const p of room.players.values()) {
+      if (!by.has(p.tm)) by.set(p.tm, []);
+      by.get(p.tm).push(p);
+    }
+    room.teams = [];
+    for (const [n, ps] of [...by.entries()].sort((a, b) => a[0] - b[0])) {
+      const t = { n, members: ps.map((p) => p.id), guesses: [], turnTimer: null, turnEndsAt: 0 };
+      ps.forEach((p, i) => {
+        p.team = t;
+        p.ti = i;
+      });
+      room.teams.push(t);
+    }
+  }
+  startCountdown(room);
+}
+
 function startCountdown(room) {
   room.round += 1;
   room.phase = 'countdown';
@@ -679,6 +931,14 @@ function startCountdown(room) {
   room.roundEndsAt = null;
   room.nextAt = null;
   for (const p of room.players.values()) resetRoundState(p);
+  if (room.teams) {
+    for (const t of room.teams) {
+      clearTimeout(t.turnTimer);
+      t.guesses = [];
+      t.turnEndsAt = 0;
+      for (const q of teamMembers(room, t)) q.guesses = t.guesses; // satu papan dipakai berdua
+    }
+  }
   if (room.settings.mode === 'skill') {
     const fresh = (room.round - 1) % SKILL_BLOCK === 0;
     for (const p of room.players.values()) if (fresh || !p.skill) giveSkill(p);
@@ -694,6 +954,7 @@ function startRound(room) {
   room.roundStartedAt = Date.now();
   room.roundEndsAt = room.roundStartedAt + room.settings.time * 1000;
   schedule(room, room.settings.time * 1000, endRound);
+  if (room.teams) for (const t of room.teams) scheduleTurn(room, t);
   broadcast(room);
 }
 
@@ -701,7 +962,25 @@ function endRound(room) {
   if (room.phase !== 'playing') return;
   room.phase = 'roundEnd';
   room.nextAt = Date.now() + RESULT_MS;
-  for (const p of room.players.values()) if (p.lower && !p.late) p.rr.push(!!p.solved);
+  clearTeamTimers(room);
+  const d = room.duel;
+  if (room.settings.mode === 'duel' && d) {
+    // pemenang ronde = yang pertama menjawab benar; taruhan berpindah dari yang kalah ke pemenang
+    const ps = [...room.players.values()];
+    const win = ps.find((p) => p.solved);
+    d.last = null;
+    if (win) {
+      d.last = { winner: win.id, amt: 0 };
+      const lose = ps.find((p) => p !== win);
+      if (lose && d.stake > 0 && d.ids.includes(win.id) && d.ids.includes(lose.id)) {
+        const amt = Math.max(0, Math.min(d.per, d.stake - (d.lost[lose.id] || 0)));
+        d.net[win.id] = (d.net[win.id] || 0) + amt;
+        d.net[lose.id] = (d.net[lose.id] || 0) - amt;
+        d.lost[lose.id] = (d.lost[lose.id] || 0) + amt;
+        d.last.amt = amt;
+      }
+    }
+  }
   // Skor Ganda: gagal = kena penalti
   for (const p of room.players.values()) {
     if (p.ganda && !p.solved) {
@@ -720,7 +999,7 @@ function advance(room) {
     clearTimeout(room.timer);
     room.phase = 'final';
     room.nextAt = null;
-    finalizePlayers(room.players.values());
+    finalizePlayers(room.players.values(), room);
     broadcast(room);
   } else {
     startCountdown(room);
@@ -740,6 +1019,9 @@ function backToLobby(room) {
   room.round = 0;
   room.word = null;
   room.countdownEndsAt = room.roundEndsAt = room.nextAt = null;
+  clearTeamTimers(room);
+  room.teams = null;
+  room.duel = null;
   for (const p of [...room.players.values()]) {
     if (!p.connected) {
       room.players.delete(p.id);
@@ -748,7 +1030,10 @@ function backToLobby(room) {
     p.score = 0;
     p.solvedCount = 0;
     p.skill = null;
-    p.rr = [];
+    p.fin = false;
+    p.ready = false;
+    p.team = null;
+    p.ti = 0;
     resetRoundState(p);
   }
   if (!room.players.has(room.hostId)) reassignHost(room);
@@ -828,6 +1113,7 @@ function attach(ws, room, player) {
   const host = room.players.get(room.hostId);
   if (!host || !host.connected) room.hostId = player.id;
   room.lastActive = Date.now();
+  if (room.teams && room.phase === 'playing' && player.team && !player.team.turnTimer) scheduleTurn(room, player.team);
   send(ws, { t: 'joined', code: room.code, id: player.id, token: player.token });
   broadcast(room);
 }
@@ -872,7 +1158,9 @@ function doCreate(ws, m) {
     code,
     hostId: null,
     players: new Map(),
-    settings: { rounds: 5, time: 120, mode: m.mode === 'skill' ? 'skill' : 'normal' },
+    settings: { rounds: 5, time: 120, mode: MODES.includes(m.mode) ? m.mode : 'normal', stake: 0 },
+    duel: null,
+    teams: null,
     phase: 'lobby',
     round: 0,
     word: null,
@@ -887,6 +1175,8 @@ function doCreate(ws, m) {
   const player = newPlayer(name, who.lower);
   room.players.set(player.id, player);
   room.hostId = player.id;
+  assignTeam(room, player);
+  loadBal(room, player);
   rooms.set(code, room);
   attach(ws, room, player);
 }
@@ -916,7 +1206,12 @@ function doJoin(ws, m) {
     detach(ws);
     return attach(ws, room, same);
   }
-  if (room.players.size >= MAX_PLAYERS) return sendErr(ws, `Room penuh (${MAX_PLAYERS}/${MAX_PLAYERS})`, 'full');
+  if (room.players.size >= capOf(room)) {
+    return sendErr(ws, room.settings.mode === 'duel' ? 'Room Duel penuh (hanya 2 pemain)' : `Room penuh (${MAX_PLAYERS}/${MAX_PLAYERS})`, 'full');
+  }
+  if ((room.settings.mode === 'team' || room.settings.mode === 'duel') && room.phase !== 'lobby') {
+    return sendErr(ws, 'Game sudah berjalan, tunggu game berikutnya', 'full');
+  }
   detach(ws);
   const player = newPlayer(name, who.lower);
   if (room.phase !== 'lobby' && room.settings.mode === 'skill') giveSkill(player);
@@ -925,6 +1220,9 @@ function doJoin(ws, m) {
     player.late = true;
   }
   room.players.set(player.id, player);
+  assignTeam(room, player);
+  loadBal(room, player);
+  normalizeDuel(room);
   attach(ws, room, player);
 }
 
@@ -949,49 +1247,100 @@ function handle(ws, m) {
       if (!isHost || room.phase !== 'lobby') return;
       room.settings.rounds = clampInt(m.rounds, LIMITS.rounds, room.settings.rounds);
       room.settings.time = clampInt(m.time, LIMITS.time, room.settings.time);
-      if (m.mode === 'skill' || m.mode === 'normal') room.settings.mode = m.mode;
+      if (MODES.includes(m.mode) && m.mode !== room.settings.mode) {
+        if (m.mode === 'duel' && room.players.size > DUEL_PLAYERS) {
+          sendErr(ws, `Duel hanya untuk 2 pemain (sekarang ada ${room.players.size}). Keluarkan pemain lain dulu.`, 'mode');
+          return broadcast(room);
+        }
+        room.settings.mode = m.mode;
+        room.settings.stake = 0;
+      }
+      if (room.settings.mode === 'duel') {
+        room.settings.stake = clampInt(m.stake, [0, duelCap(room)], room.settings.stake);
+      } else room.settings.stake = 0;
+      for (const p of room.players.values()) p.ready = false;
+      return broadcast(room);
+    }
+    case 'ready': {
+      if (room.settings.mode !== 'duel' || room.phase !== 'lobby' || isHost) return;
+      player.ready = !!m.on;
+      return broadcast(room);
+    }
+    case 'shuffle': {
+      if (!isHost || room.phase !== 'lobby' || room.settings.mode !== 'team') return;
+      const ps = [...room.players.values()];
+      for (let i = ps.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(i + 1);
+        [ps[i], ps[j]] = [ps[j], ps[i]];
+      }
+      ps.forEach((p, i) => (p.tm = Math.floor(i / 2) + 1));
+      return broadcast(room);
+    }
+    case 'team': {
+      if (!isHost || room.phase !== 'lobby' || room.settings.mode !== 'team') return;
+      const t = room.players.get(String(m.id));
+      if (!t) return;
+      t.tm = clampInt(m.tm, [1, MAX_PLAYERS / 2], t.tm);
       return broadcast(room);
     }
     case 'start': {
       if (!isHost || room.phase !== 'lobby') return;
-      room.round = 0;
-      for (const p of room.players.values()) {
-        p.score = 0;
-        p.solvedCount = 0;
-        p.skill = null;
-        p.rr = [];
+      const err = startError(room);
+      if (err) return sendErr(ws, err, 'start');
+      if (room.settings.mode === 'duel' && room.settings.stake > 0) {
+        // cek saldo terbaru kedua pemain sebelum taruhan dimulai
+        const ps = [...room.players.values()];
+        Promise.all(ps.map((p) => ranks.mine(p.lower)))
+          .then((bs) => {
+            if (rooms.get(room.code) !== room || room.phase !== 'lobby') return;
+            ps.forEach((p, i) => (p.bal = bs[i].poin));
+            if (Math.min(...bs.map((b) => b.poin)) < room.settings.stake) {
+              normalizeDuel(room);
+              sendErr(ws, 'Saldo salah satu pemain kurang dari taruhan. Taruhan diturunkan, atur lagi.', 'start');
+              return broadcast(room);
+            }
+            beginGame(room);
+          })
+          .catch(() => sendErr(ws, 'Saldo belum bisa dimuat, coba lagi sebentar', 'start'));
+        return;
       }
-      return startCountdown(room);
+      return beginGame(room);
     }
     case 'cancel': {
       // host membatalkan game yang sedang berjalan (salah setting): kembali ke lobi, tidak ada yang dicatat ke peringkat
       if (!isHost || !['countdown', 'playing', 'roundEnd'].includes(room.phase)) return;
-      for (const p of room.players.values()) p.rr = [];
       backToLobby(room);
       sendAll(room, { t: 'note', msg: 'Game dibatalkan oleh host. Hasilnya tidak dihitung.' });
       return broadcast(room);
     }
     case 'guess': {
       if (room.phase !== 'playing' || player.done || player.late) return;
+      const team = room.settings.mode === 'team' ? player.team : null;
+      if (team && turnOwner(room, team) !== player.id) return send(ws, { t: 'invalid', msg: 'Bukan giliranmu, tunggu temanmu' });
       if (player.frozenUntil > Date.now()) return send(ws, { t: 'invalid', msg: 'Kamu sedang dibekukan!' });
       const w = String(m.word || '').toLowerCase();
       if (!/^[a-z]{5}$/.test(w)) return send(ws, { t: 'invalid', msg: 'Kata harus 5 huruf' });
       if (!VALID.has(w)) return send(ws, { t: 'invalid', msg: 'Kata tidak ada di KBBI' });
       const pattern = evaluate(w, room.word);
-      player.guesses.push({ word: w, pattern });
+      const mem = team ? teamMembers(room, team) : [player];
+      player.guesses.push({ word: w, pattern }); // di mode Team, daftar tebakan ini dipakai berdua
       if (pattern === '22222') {
         const elapsed = Date.now() - room.roundStartedAt;
         const total = room.settings.time * 1000;
         const ratio = Math.max(0, 1 - elapsed / total);
-        player.solved = true;
-        player.solvedMs = elapsed;
-        player.done = true;
-        player.roundPoints = (100 + Math.round(400 * ratio)) * (player.ganda ? 2 : 1);
-        player.score += player.roundPoints;
-        player.solvedCount += 1;
+        const pts = (100 + Math.round(400 * ratio)) * (player.ganda ? 2 : 1);
+        for (const q of mem) {
+          q.solved = true;
+          q.solvedMs = elapsed;
+          q.done = true;
+          q.roundPoints = pts;
+          q.score += pts;
+          q.solvedCount += 1;
+        }
       } else if (player.guesses.length >= MAX_GUESSES) {
-        player.done = true;
+        for (const q of mem) q.done = true;
       }
+      if (team) scheduleTurn(room, team);
       // hanya kirim perubahan kecil (hemat bandwidth)
       const d = {
         t: 'pd',
@@ -1004,9 +1353,11 @@ function handle(ws, m) {
         rp: player.roundPoints,
         sm: player.solvedMs,
         sc: player.solvedCount,
+        tu: team ? team.turnEndsAt : undefined,
       };
-      sendAll(room, d, player.id);
-      send(ws, Object.assign({ w }, d));
+      const full = Object.assign({ w }, d);
+      for (const q of room.players.values()) send(q.ws, q === player || (team && q.team === team) ? full : d);
+      if (room.settings.mode === 'duel' && player.solved) return endRound(room);
       return checkRoundDone(room);
     }
     case 'skill':
@@ -1034,6 +1385,7 @@ function handle(ws, m) {
       if (!isHost) return;
       const target = room.players.get(String(m.id));
       if (!target || target.id === player.id) return;
+      if (room.settings.mode === 'duel' && room.phase !== 'lobby') return;
       if (target.ws) {
         send(target.ws, { t: 'kicked' });
         target.ws.ctx = null;
@@ -1122,6 +1474,7 @@ setInterval(() => {
 }, 60000);
 
 accounts.load();
+appSettings.load();
 loadStickers().finally(() => {
   server.listen(PORT, '0.0.0.0', () => console.log(`Server jalan di http://localhost:${PORT}`));
 });

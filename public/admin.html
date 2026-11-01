@@ -66,6 +66,20 @@
     <div id="storage"></div>
 
     <div class="card" style="margin-top:12px">
+      <h3 style="margin:0 0 8px">Pengaturan game</h3>
+      <label class="field"><span>Reset poin &amp; peringkat</span>
+        <select id="set-period"><option value="weekly">Mingguan (Senin 00:00 WIB)</option><option value="monthly">Bulanan (tanggal 1, 00:00 WIB)</option></select>
+      </label>
+      <p class="muted small">Ganti periode = periode baru langsung mulai dari 0 untuk semua. Data periode lama tetap bisa dilihat di peringkat.</p>
+      <label class="field"><span>Ukuran stiker saat muncul: <b id="size-val">44</b> px</span>
+        <input type="range" id="set-size" min="28" max="120" step="2" value="44">
+      </label>
+      <div class="preview" style="display:flex;justify-content:center;padding:8px"><img id="size-prev" alt="" style="width:44px;height:44px;object-fit:contain"></div>
+      <button class="btn primary" id="set-save" style="margin-top:8px">Simpan pengaturan</button>
+      <p class="err" id="set-err"></p>
+    </div>
+
+    <div class="card" style="margin-top:12px">
       <div class="row-between"><h3 style="margin:0">Pengguna terdaftar</h3><span class="count" id="ucount">0</span></div>
       <p class="muted small" id="ustats"></p>
       <div id="ulist" style="margin-top:8px"></div>

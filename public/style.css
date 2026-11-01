@@ -352,7 +352,7 @@ input[type='text']:focus, input[type='password']:focus, select:focus { border-co
   background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 3px; box-shadow: var(--shadow);
   animation: bubble 3s ease-out forwards;
 }
-.bubble img { width: 40px; height: 40px; object-fit: contain; display: block; }
+.bubble img { width: var(--emote-size, 40px); height: var(--emote-size, 40px); object-fit: contain; display: block; }
 .bubble::after {
   content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; background: var(--card);
   border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); transform: translateX(-50%) rotate(45deg);
@@ -438,3 +438,18 @@ input[type='text']:focus, input[type='password']:focus, select:focus { border-co
 
 .cb-opt { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); margin: 12px 0; line-height: 1.4; }
 .cb-opt input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--primary); }
+
+/* Duel & Team */
+.mode-box { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.mode-box select { font: inherit; padding: 8px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--card); color: var(--text); }
+.mode-box .small { margin: 6px 0 0; }
+.badge.bal { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); color: var(--text); }
+.badge.rdy { background: var(--primary); color: #fff; }
+.badge.team { color: #fff; }
+.tm-sel { font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--card); color: var(--text); }
+.turnbar { text-align: center; font-weight: 700; font-size: 14px; padding: 7px 10px; margin: 0 0 8px; border-radius: 10px; background: var(--key); color: var(--key-text); }
+.turnbar.mine { background: var(--primary); color: #fff; }
+.tmtag { font-size: 11px; font-weight: 800; }
+.duel-line { text-align: center; font-weight: 700; margin: 6px 0 10px; }
+@media (max-width: 380px) { .modes { grid-template-columns: 1fr; } }
+.mode-box .btn { margin-top: 8px; }

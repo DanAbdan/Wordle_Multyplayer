@@ -88,9 +88,26 @@
     }
     s.appendChild(b);
     renderList(j.storageOk);
-    $('ustats').textContent = `Minggu ini: ${j.week}. Perintah ke Upstash sejak server menyala: ${j.commands} (kuota gratis 500.000 per bulan; angka ini reset tiap server restart, lihat angka pasti di dashboard Upstash).` + (j.stableSecret ? '' : ' PERINGATAN: SESSION_SECRET belum diisi, pemain harus login ulang setiap server restart.');
+    $('set-period').value = j.period;
+    $('set-size').value = j.stickerSize;
+    $('size-val').textContent = j.stickerSize;
+    setPrev(j.stickerSize);
+    $('ustats').textContent = `Periode berjalan: ${j.periodId} (${j.period === 'monthly' ? 'bulanan' : 'mingguan'}). Perintah ke Upstash sejak server menyala: ${j.commands} (kuota gratis 500.000 per bulan; angka ini reset tiap server restart, lihat angka pasti di dashboard Upstash).` + (j.stableSecret ? '' : ' PERINGATAN: SESSION_SECRET belum diisi, pemain harus login ulang setiap server restart.');
     loadUsers();
   }
+
+  function setPrev(n) {
+    const i = $('size-prev');
+    i.style.width = i.style.height = n + 'px';
+    const first = document.querySelector('#grid img');
+    if (first && !i.src) i.src = first.src;
+  }
+  $('set-size').oninput = (e) => { $('size-val').textContent = e.target.value; setPrev(e.target.value); };
+  $('set-save').onclick = async () => {
+    $('set-err').textContent = '';
+    const { j } = await api('/admin/api/settings', { method: 'POST', body: JSON.stringify({ period: $('set-period').value, stickerSize: Number($('set-size').value) }) });
+    if (j.ok) { toast('Pengaturan disimpan'); boot(); } else $('set-err').textContent = j.error || 'Gagal menyimpan.';
+  };
 
   async function loadUsers() {
     const { j } = await api('/admin/api/users', { method: 'GET', headers: {} });

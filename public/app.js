@@ -211,7 +211,7 @@
   if (urlCode) codeInput.value = urlCode;
 
   let chosenMode = 'normal';
-  try { if (localStorage.getItem('mode') === 'skill') chosenMode = 'skill'; } catch {}
+  try { const sm = localStorage.getItem('mode'); if (['skill', 'duel', 'team'].includes(sm)) chosenMode = sm; } catch {}
   function paintMode() {
     for (const b of document.querySelectorAll('.mode-card')) {
       const on = b.dataset.mode === chosenMode;
@@ -319,6 +319,7 @@
     msel.value = st.settings.mode;
     msel.disabled = !host;
     $('skill-info').classList.toggle('hidden', st.settings.mode !== 'skill');
+    renderModeBoxes(host);
     $('settings-note').textContent = host ? '' : 'Hanya host yang bisa mengubah pengaturan.';
     $('btn-start').classList.toggle('hidden', !host);
     $('wait-note').textContent = host ? '' : 'Menunggu host memulai game…';
@@ -332,6 +333,25 @@
       li.appendChild(avatar(p.name, p.av));
       li.appendChild(el('span', 'pname', p.name + (p.id === myId ? ' (kamu)' : '')));
       if (p.host) li.appendChild(el('span', 'badge host', 'Host'));
+      if (st.settings.mode === 'duel') {
+        if (p.acc) li.appendChild(el('span', 'badge bal', (p.bal || 0) + ' poin'));
+        if (p.rdy) li.appendChild(el('span', 'badge rdy', 'Siap'));
+      }
+      if (st.settings.mode === 'team') {
+        if (host) {
+          const ts = document.createElement('select');
+          ts.className = 'tm-sel';
+          ts.setAttribute('aria-label', 'Tim ' + p.name);
+          for (let n = 1; n <= 12; n++) { const o = el('option', '', 'Tim ' + n); o.value = n; ts.appendChild(o); }
+          ts.value = String(p.tm);
+          ts.onchange = () => send({ t: 'team', id: p.id, tm: Number(ts.value) });
+          li.appendChild(ts);
+        } else {
+          const b = el('span', 'badge team', 'Tim ' + p.tm);
+          b.style.background = teamColor(p.tm);
+          li.appendChild(b);
+        }
+      }
       if (!p.connected) li.appendChild(el('span', 'badge off', 'terputus'));
       if (host && p.id !== myId) {
         const k = el('button', 'kick', '✕');
@@ -343,13 +363,62 @@
     }
   }
 
+  const teamColor = (n) => `hsl(${(n * 47) % 360}, 55%, 38%)`;
+  const STAKES = [25, 50, 100, 200, 300, 500, 1000, 2000, 5000];
+  let stakeSig = '';
+  function renderModeBoxes(host) {
+    const mode = st.settings.mode;
+    $('duel-box').classList.toggle('hidden', mode !== 'duel');
+    $('team-box').classList.toggle('hidden', mode !== 'team');
+    $('btn-shuffle').classList.toggle('hidden', !host);
+    if (mode === 'team') {
+      const cnt = {};
+      for (const p of st.players) cnt[p.tm] = (cnt[p.tm] || 0) + 1;
+      const bad = st.players.length < 2 || st.players.length % 2 || Object.values(cnt).some((n) => n !== 2);
+      $('settings-note').textContent = bad ? 'Tiap tim harus tepat 2 orang (jumlah pemain genap). Atur tim atau tekan Acak tim.' : (host ? '' : 'Hanya host yang bisa mengubah pengaturan.');
+    }
+    if (mode !== 'duel') return;
+    const ps = st.players;
+    const cap = Math.min(...ps.map((p) => (p.acc ? p.bal || 0 : 0)));
+    const sig = cap + ':' + st.settings.stake + ':' + host;
+    if (sig !== stakeSig) {
+      stakeSig = sig;
+      const sel = $('stake-sel');
+      sel.textContent = '';
+      const opts = [0, ...STAKES.filter((x) => x <= cap)];
+      if (cap > 0 && !opts.includes(cap)) opts.push(cap);
+      for (const v of opts) { const o = el('option', '', v === 0 ? 'Tanpa taruhan' : v + ' poin'); o.value = v; sel.appendChild(o); }
+      sel.value = String(st.settings.stake);
+      sel.disabled = !host;
+    }
+    const stake = st.settings.stake;
+    let info = '';
+    if (ps.length < 2) info = 'Menunggu 1 lawan bergabung (Duel hanya untuk 2 pemain).';
+    else if (!ps.every((p) => p.acc)) info = 'Taruhan butuh kedua pemain login dan punya poin. Tanpa itu, Duel tetap bisa dimainkan sebagai adu cepat.';
+    else if (cap <= 0) info = 'Salah satu pemain belum punya poin, jadi belum bisa bertaruh. Duel tetap bisa tanpa taruhan.';
+    else if (stake > 0) {
+      const per = Math.max(1, Math.ceil(stake / st.settings.rounds));
+      info = `Tiap ronde, yang paling cepat menjawab benar mengambil ${per} poin dari lawan (maksimal ${stake} poin selama game).`;
+    } else info = 'Pilih taruhan poin kalau mau. Maksimal sebesar saldo terkecil di antara kalian.';
+    $('duel-info').textContent = info;
+    const rb = $('btn-ready');
+    const other = ps.find((p) => p.id !== st.hostId);
+    rb.classList.toggle('hidden', host || stake <= 0);
+    const mm = me();
+    rb.textContent = mm && mm.rdy ? 'Batal siap' : 'Siap';
+    if (host && stake > 0 && other) $('wait-note').textContent = other.rdy ? '' : 'Menunggu lawan menekan Siap…';
+  }
+  $('btn-ready').onclick = () => { const mm = me(); send({ t: 'ready', on: !(mm && mm.rdy) }); };
+  $('btn-shuffle').onclick = () => send({ t: 'shuffle' });
+  $('stake-sel').onchange = (e) => changeSettings({ stake: Number(e.target.value) });
+
   // nilai sementara agar klik cepat tidak memakai angka lama dari server
   let want = null;
   function changeSettings(patch) {
     want = Object.assign({}, want || st.settings, patch);
     want.rounds = Math.min(20, Math.max(1, want.rounds));
     $('rounds-val').textContent = want.rounds;
-    send({ t: 'settings', rounds: want.rounds, time: want.time, mode: want.mode });
+    send({ t: 'settings', rounds: want.rounds, time: want.time, mode: want.mode, stake: want.stake || 0 });
   }
   $('rounds-dec').onclick = () => changeSettings({ rounds: (want || st.settings).rounds - 1 });
   $('rounds-inc').onclick = () => changeSettings({ rounds: (want || st.settings).rounds + 1 });
@@ -414,9 +483,34 @@
     const m = me();
     return !!(m && m.frozenUntil > Date.now() + offset);
   }
+  // mode Team: giliran menebak bergantian per baris (baris genap pemain pertama, ganjil pemain kedua)
+  function teamTurn() {
+    if (!st || st.settings.mode !== 'team') return null;
+    const m = me();
+    if (!m || !m.tm) return null;
+    const mem = st.players.filter((q) => q.tm === m.tm);
+    const idx = st.myGuesses.length % 2;
+    const pick = (i) => mem.find((q) => q.ti === i && q.connected);
+    const owner = pick(idx) || pick(1 - idx) || null;
+    return { mine: !!owner && owner.id === myId, owner, mem };
+  }
   function canType() {
     const m = me();
-    return st && st.phase === 'playing' && m && !m.done && !m.late && !pending && !frozenNow();
+    const tt = teamTurn();
+    return st && st.phase === 'playing' && m && !m.done && !m.late && !pending && !frozenNow() && (!tt || tt.mine);
+  }
+  function renderTurn() {
+    const bar = $('turnbar');
+    const tt = teamTurn();
+    const m = me();
+    if (!tt || !st || st.phase !== 'playing' || !m || m.done) { bar.classList.add('hidden'); return; }
+    bar.classList.remove('hidden');
+    const left = m.tu ? Math.max(0, Math.ceil((m.tu - (Date.now() + offset)) / 1000)) : 0;
+    const row = st.myGuesses.length + 1;
+    bar.classList.toggle('mine', tt.mine);
+    bar.textContent = tt.mine
+      ? `✎ Giliranmu: baris ${row} · ${left} dtk`
+      : `Giliran ${tt.owner ? tt.owner.name : 'rekanmu'}: baris ${row} · ${left} dtk`;
   }
 
   function setTile(t, letter, cls) {
@@ -452,9 +546,11 @@
           shownRows = r + 1;
         }
       } else if (r === guesses.length && st.phase === 'playing') {
+        const ttn = teamTurn();
+        const typing = !ttn || ttn.mine;
         for (let c = 0; c < 5; c++) {
-          if (cur[c]) setTile(rows[r].tiles[c], cur[c]);
-          else if (hint && hint.pos === c) setTile(rows[r].tiles[c], hint.letter.toUpperCase(), 'hint');
+          if (typing && cur[c]) setTile(rows[r].tiles[c], cur[c]);
+          else if (typing && hint && hint.pos === c) setTile(rows[r].tiles[c], hint.letter.toUpperCase(), 'hint');
           else setTile(rows[r].tiles[c], '');
         }
       } else if (r >= guesses.length) {
@@ -579,6 +675,14 @@
   }
   $('sk-use').onclick = () => send({ t: 'skill' });
 
+  function teamOwnerId(p) {
+    const mem = st.players.filter((q) => q.tm === p.tm);
+    const idx = p.rows.length % 2;
+    const pick = (i) => mem.find((q) => q.ti === i && q.connected);
+    const o = pick(idx) || pick(1 - idx);
+    return o ? o.id : null;
+  }
+
   // ---------- Panel pemain ----------
   let frozenKey = '';
   function renderSide() {
@@ -590,6 +694,7 @@
     for (const p of sorted) {
       const c = el('div', 'pcard' + (p.id === myId ? ' me' : '') + (p.connected ? '' : ' off'));
       c.dataset.pid = p.id;
+      if (st.settings.mode === 'team' && p.tm) c.style.borderTopColor = teamColor(p.tm);
       c.title = p.name;
       const pn = el('div', 'pn');
       if (p.av || p.host) {
@@ -600,6 +705,11 @@
       }
       pn.appendChild(el('span', '', p.name));
       c.appendChild(pn);
+      if (st.settings.mode === 'team' && p.tm) {
+        const tg = el('div', 'tmtag', 'Tim ' + p.tm);
+        tg.style.color = teamColor(p.tm);
+        c.appendChild(tg);
+      }
       const g = el('div', 'mini-grid');
       for (let r = 0; r < 6; r++) {
         const mr = el('div', 'mini-row');
@@ -613,6 +723,7 @@
         else if (p.late) status = 'Menunggu';
         else if (p.done) status = 'Habis';
         else if (p.frozenUntil > now) status = '❄ Beku';
+        else if (st.settings.mode === 'team' && st.phase === 'playing' && teamOwnerId(p) === p.id) status = '✎ Giliran';
         else status = `${p.rows.length}/6`;
       }
       if (!p.connected) status = 'terputus';
@@ -623,16 +734,21 @@
   }
 
   // ---------- Hasil ronde & akhir ----------
+  const signed = (n) => (n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0');
   function rankTable(players, mode) {
     const t = el('table', 'lb');
-    const sorted = players.map((p, i) => ({ p, i })).sort((a, b) => b.p.score - a.p.score || b.p.solvedCount - a.p.solvedCount || a.i - b.i).map((x) => x.p);
+    const duel = st.settings.mode === 'duel';
+    const net = (p) => (st.duel && st.duel.net ? st.duel.net[p.id] || 0 : 0);
+    const sorted = players.map((p, i) => ({ p, i })).sort((a, b) => (duel ? net(b.p) - net(a.p) || b.p.solvedCount - a.p.solvedCount : b.p.score - a.p.score || b.p.solvedCount - a.p.solvedCount) || a.i - b.i).map((x) => x.p);
     sorted.forEach((p, i) => {
       const tr = el('tr', p.id === myId ? 'me' : '');
       tr.appendChild(el('td', 'rank', String(i + 1)));
       const nm = el('td');
-      nm.textContent = p.name + (p.id === myId ? ' (kamu)' : '');
+      nm.textContent = p.name + (p.id === myId ? ' (kamu)' : '') + (st.settings.mode === 'team' && p.tm ? ' · Tim ' + p.tm : '');
       tr.appendChild(nm);
-      if (mode === 'round') {
+      if (mode === 'round' && duel) {
+        tr.appendChild(el('td', 'plus', p.solved ? '✓ ' + (p.solvedMs / 1000).toFixed(1) + 's' : '—'));
+      } else if (mode === 'round') {
         const cell = p.solved
           ? '+' + p.roundPoints + (p.solvedMs != null ? ` · ${(p.solvedMs / 1000).toFixed(1)}s` : '')
           : p.roundPoints < 0 ? '−' + Math.abs(p.roundPoints) + ' ⚡' : '—';
@@ -640,7 +756,7 @@
       } else {
         tr.appendChild(el('td', 'plus', `benar ${p.solvedCount}/${st.settings.rounds}`));
       }
-      tr.appendChild(el('td', 'pts', String(p.score)));
+      tr.appendChild(el('td', 'pts', duel ? (st.duel && st.duel.stake > 0 ? signed(net(p)) : p.solvedCount + ' menang') : String(p.score)));
       t.appendChild(tr);
     });
     return { table: t, sorted };
@@ -678,6 +794,11 @@
       wrapA.appendChild(a);
       rv.appendChild(wrapA);
       body.appendChild(rv);
+      if (st.settings.mode === 'duel' && st.duel) {
+        const l = st.duel.last;
+        const wp = l && st.players.find((p) => p.id === l.winner);
+        body.appendChild(el('p', 'duel-line', wp ? `🏆 ${wp.name} menang ronde ini` + (l.amt > 0 ? ` dan mengambil ${l.amt} poin` : '') : 'Tidak ada yang menjawab benar: seri.'));
+      }
       body.appendChild(rankTable(st.players, 'round').table);
       body.appendChild(el('div', 'next-note')).id = 'next-note';
       if (isHost()) {
@@ -692,7 +813,13 @@
       }
     } else {
       const { table, sorted } = rankTable(st.players, 'final');
-      body.appendChild(el('h2', '', '🏆 Hasil akhir'));
+      body.appendChild(el('h2', '', st.settings.mode === 'duel' ? '⚔️ Hasil Duel' : '🏆 Hasil akhir'));
+      if (st.settings.mode === 'duel' && st.duel && st.duel.stake > 0) {
+        const top = sorted[0];
+        const gain = st.duel.net[top.id] || 0;
+        if (gain > 0) body.appendChild(el('p', 'duel-line', `${top.name} memenangkan taruhan: +${gain} poin`));
+        else body.appendChild(el('p', 'duel-line', 'Seri, tidak ada poin yang berpindah.'));
+      }
       const pod = el('div', 'podium');
       const order = [1, 0, 2];
       for (const idx of order) {
@@ -701,7 +828,7 @@
         const d = el('div', 'pod p' + (idx + 1));
         d.appendChild(avatar(p.name, p.av));
         d.appendChild(el('div', 'nm', p.name));
-        d.appendChild(el('div', 'sc', p.score + ' poin'));
+        d.appendChild(el('div', 'sc', st.settings.mode === 'duel' ? (st.duel && st.duel.stake > 0 ? signed(st.duel.net[p.id] || 0) + ' poin' : p.solvedCount + ' menang') : p.score + ' poin'));
         d.appendChild(el('div', 'blk', String(idx + 1)));
         pod.appendChild(d);
       }
@@ -760,6 +887,7 @@
       const r = await fetch('/api/stickers', { cache: 'no-store' });
       const j = await r.json();
       stickers = Array.isArray(j.stickers) ? j.stickers.slice(0, 5) : [];
+      if (Number(j.size) > 0) document.documentElement.style.setProperty('--emote-size', Math.round(Number(j.size)) + 'px');
       for (const s of stickers) new Image().src = '/s/' + s.id; // isi cache browser
     } catch {}
     if (stickers.map((s) => s.id).join(',') !== traySig) renderTray(); // hanya bangun ulang kalau daftar berubah
@@ -828,14 +956,19 @@
     if (!st) return;
     const p = st.players.find((x) => x.id === d.id);
     if (!p) return;
-    if (p.rows.length < d.n) p.rows.push(d.row);
-    p.done = d.done;
-    p.solved = d.solved;
-    p.score = d.score;
-    p.roundPoints = d.rp;
-    p.solvedMs = d.sm;
-    p.solvedCount = d.sc;
-    if (d.id === myId && d.w && st.myGuesses.length < d.n) {
+    // mode Team: satu papan dipakai berdua, jadi perubahan berlaku untuk kedua anggota tim
+    const group = st.settings.mode === 'team' && p.tm ? st.players.filter((q) => q.tm === p.tm) : [p];
+    for (const q of group) {
+      if (q.rows.length < d.n) q.rows.push(d.row);
+      q.done = d.done;
+      q.solved = d.solved;
+      q.score = d.score;
+      q.roundPoints = d.rp;
+      q.solvedMs = d.sm;
+      q.solvedCount = d.sc;
+      if (d.tu !== undefined) q.tu = d.tu;
+    }
+    if (group.some((q) => q.id === myId) && d.w && st.myGuesses.length < d.n) {
       st.myGuesses.push({ w: d.w, p: d.row });
       cur = '';
       pending = false;
@@ -880,6 +1013,7 @@
     const m = me();
     $('countdown').classList.toggle('hidden', st.phase !== 'countdown');
     $('spectate').classList.toggle('hidden', !(st.phase === 'playing' && m && m.late));
+    renderTurn();
     tick();
   }
 
@@ -909,6 +1043,7 @@
         n.textContent = st.round >= st.settings.rounds ? `Hasil akhir dalam ${s} dtk…` : `Ronde berikutnya otomatis dalam ${s} dtk…`;
       }
     }
+    if (st.settings.mode === 'team') renderTurn();
     // efek beku
     const m = me();
     const fz = !!(m && st.phase === 'playing' && m.frozenUntil > now);
@@ -1034,7 +1169,7 @@
     prof.appendChild(avatar(user.name, user.av, 'lg'));
     prof.appendChild(el('div', 'nm', user.name));
     const stats = el('div', 'acc-stats');
-    for (const [v, l] of [[user.week.benar, 'jawaban benar minggu ini'], [user.week.best, 'streak terbaik minggu ini']]) {
+    for (const [v, l] of [[user.poin, 'poin ' + perLabel(user.period)], [user.benar, 'jawaban benar ' + perLabel(user.period)]]) {
       const d = el('div');
       d.appendChild(el('b', '', String(v)));
       d.appendChild(el('span', '', l));
@@ -1149,7 +1284,8 @@
 
   // ---------- Peringkat ----------
   let rankData = null;
-  let rankTab = 'benar';
+  let rankTab = 'poin';
+  const perLabel = (p) => (p === 'monthly' ? 'bulan ini' : 'minggu ini');
   let rankFetchedAt = 0;
   async function loadRank(week) {
     $('rank-body').textContent = '';
@@ -1165,6 +1301,10 @@
     paintRank();
   }
   function fmtWeek(id) {
+    if (id.length === 7) {
+      const [y, m] = id.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    }
     const [y, m, d] = id.split('-').map(Number);
     const a = new Date(Date.UTC(y, m - 1, d));
     const b = new Date(Date.UTC(y, m - 1, d + 6));
@@ -1177,7 +1317,7 @@
     const sel = $('rank-week');
     sel.textContent = '';
     for (const w of r.weeks) {
-      const o = el('option', '', fmtWeek(w) + (w === r.weeks[0] && r.current ? ' (minggu ini)' : ''));
+      const o = el('option', '', fmtWeek(w) + (w === r.weeks[0] && r.current ? ' (' + perLabel(r.period) + ')' : ''));
       o.value = w;
       sel.appendChild(o);
     }
@@ -1185,15 +1325,15 @@
     const left = r.endsAt - (Date.now() + offset);
     $('rank-left').textContent = r.current
       ? (left > 86400000 ? `Berakhir ${Math.ceil(left / 86400000)} hari lagi` : left > 0 ? 'Berakhir hari ini (00:00 WIB)' : '')
-      : 'Minggu lalu (sudah final)';
+      : 'Periode lalu (sudah final)';
     $('tab-benar').classList.toggle('selected', rankTab === 'benar');
-    $('tab-streak').classList.toggle('selected', rankTab === 'streak');
+    $('tab-poin').classList.toggle('selected', rankTab === 'poin');
     $('tab-benar').setAttribute('aria-selected', rankTab === 'benar');
-    $('tab-streak').setAttribute('aria-selected', rankTab === 'streak');
-    const list = rankTab === 'benar' ? r.benar : r.streak;
+    $('tab-poin').setAttribute('aria-selected', rankTab === 'poin');
+    const list = rankTab === 'benar' ? r.benar : r.poin;
     const body = $('rank-body');
     body.textContent = '';
-    if (!list.length) body.appendChild(el('div', 'rank-empty', 'Belum ada data minggu ini. Main dulu dengan akun yang login!'));
+    if (!list.length) body.appendChild(el('div', 'rank-empty', 'Belum ada data di periode ini. Main dulu dengan akun yang login!'));
     list.forEach((x, i) => {
       const row = el('div', 'rank-row' + (user && x.n.toLowerCase() === user.name.toLowerCase() ? ' me' : ''));
       row.appendChild(el('span', 'no', i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1)));
@@ -1203,13 +1343,13 @@
     });
     const mine = $('rank-mine');
     if (user && r.current) {
-      mine.textContent = `Kamu minggu ini: ${user.week.benar} jawaban benar · streak terbaik ${user.week.best}`;
+      mine.textContent = `Kamu ${perLabel(user.period)}: ${user.poin} poin · ${user.benar} jawaban benar`;
     } else if (!user) {
       mine.textContent = 'Kamu main sebagai tamu, skormu tidak tercatat. Login lewat tombol 👤.';
     } else mine.textContent = '';
     $('rank-note').textContent = rankTab === 'benar'
-      ? 'Total jawaban benar dari semua game minggu ini (solo atau bareng).'
-      : 'Jawaban benar berturut-turut terbanyak (streak) sepanjang minggu ini. Salah atau kehabisan waktu mengulang dari 0.';
+      ? 'Total jawaban benar dari semua game di periode ini (solo atau bareng).'
+      : 'Poin dari kemenangan game, dikumpulkan sepanjang periode. Taruhan Duel menambah atau mengurangi poin ini.';
   }
   $('btn-rank').onclick = async () => {
     $('modal-rank').classList.remove('hidden');
@@ -1221,7 +1361,7 @@
   $('modal-rank').addEventListener('click', (e) => { if (e.target === $('modal-rank')) $('modal-rank').classList.add('hidden'); });
   $('rank-week').onchange = (e) => loadRank(e.target.value);
   $('tab-benar').onclick = () => { rankTab = 'benar'; paintRank(); };
-  $('tab-streak').onclick = () => { rankTab = 'streak'; paintRank(); };
+  $('tab-poin').onclick = () => { rankTab = 'poin'; paintRank(); };
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') for (const id of ['modal-rank', 'modal-acc', 'modal-confirm']) $(id).classList.add('hidden');
   });
